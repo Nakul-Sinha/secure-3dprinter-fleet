@@ -1,0 +1,32 @@
+# Binary reference documents are kept local, not published
+*.pdf
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build output
+dist/
+build/
+artifacts/
+cache/
+out/
+typechain/
+typechain-types/
+coverage/
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+*.keystore
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
