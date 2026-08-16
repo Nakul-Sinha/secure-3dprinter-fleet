@@ -18,6 +18,15 @@ typechain/
 typechain-types/
 coverage/
 
+# Logs and local run artifacts
+*.log
+npm-debug.log*
+deployments.local.json
+deployments.*.local.json
+*.db
+*.sqlite
+*.sqlite3
+
 # Environment and secrets
 .env
 .env.*
@@ -30,3 +39,6 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+
+# Unrelated content present in the working directory, not part of this project
+z0d1ak/
