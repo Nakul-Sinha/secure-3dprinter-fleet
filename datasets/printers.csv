@@ -1,0 +1,6 @@
+id,model,materials,tolerance_class
+printer-01,Prusa-MK4,PLA|PETG,fine
+printer-02,Voron-2.4,PLA|ABS|PETG,precision
+printer-03,Ender-3,PLA,standard
+printer-04,UltiMaker-S5,PLA|ABS|PETG,fine
+printer-05,Bambu-X1,PLA|ABS|PETG,precision

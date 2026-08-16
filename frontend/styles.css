@@ -7,55 +7,57 @@
   --card: #ffffff;
   --rule: #d9e1ea;
   --ok: #2e7d32;
+  --bad: #c0392b;
+  --warn: #b9770e;
+  --info: #34618e;
 }
-
 * { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+.hidden { display: none !important; }
+.muted { color: var(--muted); font-size: 13px; }
+.mono { font-family: ui-monospace, Consolas, monospace; }
 
-body {
-  margin: 0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  color: var(--ink);
-  background: var(--bg);
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  background: var(--brand);
-  color: #fff;
-}
-
-.brand { font-weight: 700; letter-spacing: 0.2px; }
-
-.pill {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #ffffff33;
-  color: #fff;
-}
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: var(--brand); color: #fff; }
+.brand { font-weight: 700; }
+.session { display: flex; align-items: center; gap: 10px; }
+.session .muted { color: #cfe0f0; }
+.pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #ffffff33; }
 .pill.ok { background: var(--ok); }
 
-.container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+.nav { display: flex; gap: 4px; padding: 8px 20px 0; background: var(--brand); }
+.tab { border: none; background: #ffffff22; color: #fff; padding: 8px 16px; border-radius: 8px 8px 0 0; cursor: pointer; text-transform: capitalize; }
+.tab.active { background: var(--bg); color: var(--brand); font-weight: 600; }
 
-.card {
-  background: var(--card);
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  padding: 20px 22px;
-}
+.container { max-width: 1000px; margin: 20px auto; padding: 0 16px; }
+.foot { max-width: 1000px; margin: 8px auto 30px; padding: 0 16px; }
 
+.card { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+.card.sub { background: #f7f9fc; margin-top: 12px; }
 h1 { font-size: 20px; margin: 0 0 8px; color: var(--brand); }
-.muted { color: var(--muted); }
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 13px;
-  white-space: pre-wrap;
-  background: #f4f5f7;
-  border: 1px solid var(--rule);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-top: 12px;
-}
+h2 { font-size: 16px; margin: 0 0 8px; color: var(--brand2); }
+h3 { font-size: 14px; margin: 0 0 6px; }
+
+.row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 10px 0; }
+label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
+input, select { padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; font-size: 14px; }
+
+.btn { background: var(--brand2); color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.btn:hover { background: var(--brand); }
+.btn.small { padding: 4px 10px; font-size: 12px; }
+.btn.ghost { background: transparent; color: var(--brand2); border: 1px solid var(--brand2); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+
+.chips { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+.chip { border: 1px solid var(--rule); background: #eef3f8; color: var(--brand); padding: 4px 10px; border-radius: 999px; cursor: pointer; font-size: 12px; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+th { text-align: left; background: var(--brand); color: #fff; padding: 7px 9px; font-weight: 600; }
+td { padding: 6px 9px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tbody tr:nth-child(even) { background: #f4f7fb; }
+
+.badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; }
+.badge.ok { background: var(--ok); }
+.badge.bad { background: var(--bad); }
+.badge.warn { background: var(--warn); }
+.badge.info { background: var(--info); }

@@ -9,18 +9,18 @@
   <body>
     <header class="topbar">
       <div class="brand">Secure 3D-Printer Fleet</div>
-      <div id="status-pill" class="pill">checking...</div>
+      <div class="session">
+        <span id="whoami" class="muted"></span>
+        <span id="status-pill" class="pill">checking...</span>
+        <button id="logout" class="btn ghost hidden">Sign out</button>
+      </div>
     </header>
-    <main id="app" class="container">
-      <section class="card">
-        <h1>Fleet management console</h1>
-        <p class="muted">
-          Phase 0 shell. The full dashboard (login, job submission, fleet
-          monitor, print history, and audit viewer) is mounted in Phase A.
-        </p>
-        <div id="health" class="mono"></div>
-      </section>
-    </main>
+    <nav id="nav" class="nav hidden"></nav>
+    <main id="view" class="container"></main>
+    <footer class="foot muted">
+      Tier A0: tamper-evident. Verification claims are labeled with the tier that
+      earns them. This build uses simulated printers and sensors.
+    </footer>
     <script src="/app.js"></script>
   </body>
 </html>
