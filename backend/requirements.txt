@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+SQLAlchemy>=2.0
+cryptography>=42.0
+requests>=2.31
+numpy>=1.26
+pytest>=8.0
+httpx>=0.27
