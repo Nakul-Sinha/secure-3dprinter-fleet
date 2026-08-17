@@ -1,0 +1,7 @@
+user_id,role,org,granted_by
+admin,Admin,fleet,system
+op-1,Operator,fleet,admin
+op-2,Operator,fleet,admin
+client-acme,Client,acme,admin
+client-globex,Client,globex,admin
+auditor-1,Auditor,regulator,admin

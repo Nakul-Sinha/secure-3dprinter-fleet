@@ -1,0 +1,4 @@
+id,type,density,nominal_temp,cost_per_gram
+mat-pla-001,PLA,1.24,210,0.03
+mat-abs-001,ABS,1.04,240,0.04
+mat-petg-001,PETG,1.27,235,0.05
