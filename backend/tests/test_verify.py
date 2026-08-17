@@ -36,10 +36,34 @@ def test_lazy_fake_is_caught_by_sampling():
     assert res["p_evade"] < 1e-3
 
 
-def test_localized_sabotage_needs_continuous_screening():
-    # Sampling may miss a localized defect, but continuous screening catches it.
+def test_localized_sabotage_is_caught_and_fails_closed():
+    # Sampling may miss a localized defect, but continuous screening catches it
+    # AND gates the verdict, so a sabotaged part can never show Verified@A0.
     tele = simulate("job-sab", 200, Scenario.SABOTAGED)
     commits = verifier.commit_all("job-sab", tele)
     res = verifier.verify_job("job-sab", tele, commits, n=20)
-    assert res["screening_failures"] > 0  # the honest guarantee that catches sabotage
+    assert res["screening_failures"] > 0  # screening detects the void
     assert res["faked_fraction"] > 0
+    assert res["verdict"] == Verdict.FAILED  # fail-closed: never Verified@A0
+    assert res["screening_ok"] is False
+
+
+def test_replay_of_another_jobs_commitments_rejected():
+    # commitments are bound to the job id; replaying job A's telemetry and
+    # commitments under a new job id fails the per-bucket integrity recompute.
+    tele = simulate("job-A", 120, Scenario.LEGITIMATE)
+    commits_a = verifier.commit_all("job-A", tele)
+    res = verifier.verify_job("job-B", tele, commits_a, n=20)
+    assert res["verdict"] == Verdict.FAILED
+    assert len(res["sampled_failures"]) > 0
+    assert all(f["integrity"] is False for f in res["sampled_failures"])
+
+
+def test_legitimate_never_false_fails():
+    # legitimate readings are clipped into envelope, so screening is clean
+    for i in range(5):
+        tele = simulate(f"job-leg-{i}", 150, Scenario.LEGITIMATE)
+        commits = verifier.commit_all(f"job-leg-{i}", tele)
+        res = verifier.verify_job(f"job-leg-{i}", tele, commits, n=20)
+        assert res["verdict"] == Verdict.VERIFIED_A0
+        assert res["screening_failures"] == 0

@@ -55,6 +55,8 @@ table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13p
 th { text-align: left; background: var(--brand); color: #fff; padding: 7px 9px; font-weight: 600; }
 td { padding: 6px 9px; border-bottom: 1px solid var(--rule); vertical-align: top; }
 tbody tr:nth-child(even) { background: #f4f7fb; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: #e7eff8; }
 
 .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; }
 .badge.ok { background: var(--ok); }

@@ -15,6 +15,7 @@ from .api import router as api_router
 from .auth import AccessDenied
 from .db import init_db, session_scope
 from .jobs import JobError
+from .ledger import get_ledger
 from .storage import StorageError
 from .users import bootstrap_admin
 
@@ -33,6 +34,15 @@ app = FastAPI(title="Secure 3D-Printer Fleet API", version=__version__, lifespan
 
 @app.exception_handler(AccessDenied)
 def _access_denied(_: Request, exc: AccessDenied):
+    # Record the denied attempt in the audit stream (a reverted on-chain call
+    # cannot persist a log, so the backend captures it at tier A0).
+    try:
+        with session_scope() as s:
+            get_ledger().append(s, exc.actor, "AccessDenied", exc.action,
+                                {"actor": exc.actor, "action": exc.action})
+            s.commit()
+    except Exception:
+        pass
     return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 

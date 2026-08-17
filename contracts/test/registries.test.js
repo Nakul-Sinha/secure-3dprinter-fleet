@@ -28,7 +28,7 @@ describe("AccessControlHub", function () {
   it("only Admin can grant roles", async function () {
     const { acl, client, other } = await deploy();
     await expect(acl.connect(client).grantRole(other.address, ROLE.Operator))
-      .to.be.revertedWithCustomError(acl, "Unauthorized");
+      .to.be.revertedWithCustomError(acl, "AccessDenied");
     await acl.grantRole(other.address, ROLE.Auditor);
     expect(await acl.has(other.address, ROLE.Auditor)).to.equal(true);
   });
@@ -44,7 +44,7 @@ describe("PrinterRegistry", function () {
     expect(await pr.isAvailable(id)).to.equal(false);
     await expect(
       pr.connect(client).addPrinter(ethers.encodeBytes32String("p2"), "X", "standard")
-    ).to.be.revertedWithCustomError(acl, "Unauthorized");
+    ).to.be.revertedWithCustomError(acl, "AccessDenied");
   });
 });
 
@@ -68,7 +68,7 @@ describe("JobRegistry", function () {
     const { acl, jr, operator } = await deploy();
     const jobId = ethers.encodeBytes32String("job-2");
     await expect(jr.connect(operator).registerJob(jobId, "cid", ethers.id("x")))
-      .to.be.revertedWithCustomError(acl, "Unauthorized");
+      .to.be.revertedWithCustomError(acl, "AccessDenied");
     await expect(jr.connect(operator).scheduleJob(jobId, ethers.encodeBytes32String("p")))
       .to.be.revertedWithCustomError(jr, "UnknownJob");
   });

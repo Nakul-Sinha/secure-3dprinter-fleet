@@ -115,12 +115,24 @@ def verify_job(job_id: str, telemetry: list[dict], commitments: list[str], r0: i
     # continuous screening: every bucket against its expected envelope
     screen_fail = [t["bucket"] for t in telemetry if not in_envelope(t, t["expected_phase"])]
     phi = (len(screen_fail) / duration) if duration else 0.0
-    pe = p_evade(phi, n)
+    pe = p_evade(phi, n, settings.sampling_q)
 
-    verdict = Verdict.VERIFIED_A0 if sampling_ok else Verdict.FAILED
+    # Fail closed: a job is Verified@A0 only if the random sample passes AND
+    # continuous screening found no out-of-envelope bucket. Screening is what
+    # catches localized sabotage that the sample can miss, so it must gate the
+    # verdict; otherwise the "caught by screening" claim would be hollow.
+    ok = sampling_ok and not screen_fail
+    verdict = Verdict.VERIFIED_A0 if ok else Verdict.FAILED
+    if not sampling_ok:
+        reason = "gross false-completion detected by random sampling"
+    elif screen_fail:
+        reason = f"localized anomaly detected by continuous screening ({len(screen_fail)} bucket(s))"
+    else:
+        reason = "sample and screening both clean"
     return {
         "verdict": verdict,
         "sampling_ok": sampling_ok,
+        "screening_ok": not screen_fail,
         "n": n,
         "sampled": sampled,
         "sampled_failures": sampled_fail,
@@ -129,9 +141,11 @@ def verify_job(job_id: str, telemetry: list[dict], commitments: list[str], r0: i
         "faked_fraction": round(phi, 4),
         "p_evade": pe,
         "merkle_root": merkle_root(commitments),
+        "reason": reason,
         "note": (
-            "Sampling bounds gross false-completion (P_evade shown). "
-            "Localized sabotage is caught by continuous screening, and internal "
-            "correctness requires A3 physical ratification."
+            "Verified@A0 requires a clean random sample and clean continuous "
+            "screening. Sampling bounds gross false-completion (P_evade shown); "
+            "screening catches localized sabotage. Internal correctness of the "
+            "part still requires A3 physical ratification (X-ray CT or PUF)."
         ),
     }

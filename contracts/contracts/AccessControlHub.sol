@@ -19,7 +19,7 @@ contract AccessControlHub {
 
     event RoleGranted(address indexed who, Role role, address indexed by);
 
-    error Unauthorized(address who, Role needed);
+    error AccessDenied(address who, Role needed);
 
     constructor() {
         roleOf[msg.sender] = Role.Admin;
@@ -27,7 +27,7 @@ contract AccessControlHub {
     }
 
     modifier onlyAdmin() {
-        if (roleOf[msg.sender] != Role.Admin) revert Unauthorized(msg.sender, Role.Admin);
+        if (roleOf[msg.sender] != Role.Admin) revert AccessDenied(msg.sender, Role.Admin);
         _;
     }
 
@@ -38,7 +38,7 @@ contract AccessControlHub {
 
     /// @notice Reverts unless `who` holds exactly `role`.
     function requireRole(address who, Role role) external view {
-        if (roleOf[who] != role) revert Unauthorized(who, role);
+        if (roleOf[who] != role) revert AccessDenied(who, role);
     }
 
     function has(address who, Role role) external view returns (bool) {

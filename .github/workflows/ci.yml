@@ -43,3 +43,39 @@ jobs:
           pip install -r requirements.txt
       - name: Test
         run: pytest
+
+  integration:
+    name: Chain integration (Hardhat + backend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install contract deps
+        working-directory: contracts
+        run: npm ci || npm install
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Start chain, deploy, run integration test
+        working-directory: contracts
+        run: |
+          npx hardhat node > hh.log 2>&1 &
+          NODE_PID=$!
+          for i in $(seq 1 40); do
+            if curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' | grep -q result; then
+              echo "node up"; break
+            fi
+            sleep 1
+          done
+          npx hardhat run scripts/deploy.js --network localhost
+          cd ../backend
+          APP_LEDGER=chain pytest tests/test_chain_integration.py -q
+          kill $NODE_PID || true

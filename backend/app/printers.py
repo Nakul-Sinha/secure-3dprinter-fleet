@@ -47,9 +47,14 @@ def list_printers(session: Session) -> list[Printer]:
     return list(session.execute(select(Printer).order_by(Printer.id)).scalars())
 
 
+HEALTHY = {"ok", "good", "healthy"}
+
+
 def is_capable(session: Session, printer: Printer, job: Job) -> bool:
-    """Material, tolerance, and reservation checks."""
+    """Availability, health, material, tolerance, and build-volume checks."""
     if printer.status != PrinterStatus.IDLE or printer.current_job is not None:
+        return False
+    if printer.health not in HEALTHY:
         return False
     if job.material_lot_id:
         mat = session.get(MaterialLot, job.material_lot_id)
@@ -57,5 +62,7 @@ def is_capable(session: Session, printer: Printer, job: Job) -> bool:
             return False
     tol_rank = {"draft": 0, "standard": 1, "fine": 2, "precision": 3}
     if tol_rank.get(printer.tolerance_class, 1) < tol_rank.get(job.tolerance_class, 1):
+        return False
+    if job.bbox_x > printer.build_x or job.bbox_y > printer.build_y or job.bbox_z > printer.build_z:
         return False
     return True

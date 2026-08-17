@@ -40,6 +40,9 @@ class Settings:
 
     # Verification preview parameters (see Architecture.md section 8).
     sampling_n: int = field(default_factory=lambda: int(_env("APP_SAMPLING_N", "20")))
+    # Conservatively floored, empirically calibrated per-sample detection
+    # probability used in the P(evade) bound. Never assume a perfect 1.0.
+    sampling_q: float = field(default_factory=lambda: float(_env("APP_SAMPLING_Q", "0.9")))
     bucket_seconds: int = 1
 
     # Envelopes for phase detection, shared verbatim between simulator and

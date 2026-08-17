@@ -47,6 +47,12 @@ def hmac_verify(data: bytes, signature: str, key: bytes | None = None) -> bool:
     return hmac.compare_digest(hmac_sign(data, key), signature)
 
 
+def audit_key() -> bytes:
+    """Audit-signing key, domain-separated from the session-token key so that
+    knowledge of the login secret cannot forge or rewrite the audit chain."""
+    return hashlib.sha256(b"audit-sign|" + settings.master_secret).digest()
+
+
 # ---- envelope encryption ----
 
 def _derive_kek() -> bytes:

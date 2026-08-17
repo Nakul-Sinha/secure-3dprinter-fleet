@@ -86,5 +86,39 @@ def test_unauthorized_access_blocked(client):
     assert r.status_code == 403
 
 
+def test_client_cannot_read_another_clients_job(client):
+    admin = login(client, "admin")
+    client.post("/api/demo/seed", headers=_auth(admin))
+    client.post("/api/users", headers=_auth(admin), json={"id": "client-evil", "role": "Client"})
+    ctok = login(client, "client-acme")
+    job_id = client.post("/api/jobs", headers=_auth(ctok), json={
+        "design_name": "secret.3mf", "material_lot_id": "mat-pla-001",
+    }).json()["id"]
+    # a different client must not read it (no IDOR leak of file_hash/CID)
+    etok = login(client, "client-evil")
+    assert client.get(f"/api/jobs/{job_id}", headers=_auth(etok)).status_code == 404
+    # the owner still can
+    assert client.get(f"/api/jobs/{job_id}", headers=_auth(ctok)).status_code == 200
+
+
+def test_materials_low_stock_flag(client):
+    admin = login(client, "admin")
+    client.post("/api/demo/seed", headers=_auth(admin))
+    client.post("/api/materials", headers=_auth(admin),
+                json={"id": "mat-low", "type": "PLA", "stock_qty": 10})
+    mats = client.get("/api/materials", headers=_auth(admin)).json()
+    low = next(m for m in mats if m["id"] == "mat-low")
+    assert low["low_stock"] is True
+
+
+def test_audit_csv_export(client):
+    admin = login(client, "admin")
+    client.post("/api/demo/seed", headers=_auth(admin))
+    r = client.get("/api/audit/export.csv", headers=_auth(admin))
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "seq,actor,action" in r.text
+
+
 def test_requires_authentication(client):
     assert client.get("/api/jobs").status_code == 401

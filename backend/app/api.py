@@ -160,11 +160,13 @@ def list_materials(user: User = Depends(current_user), session: Session = Depend
     from .auth import require
 
     require(user, "fleet.read")
-    return [
-        {"id": m.id, "type": m.type, "stock_qty": m.stock_qty, "reserved_qty": m.reserved_qty,
-         "available": m.stock_qty - m.reserved_qty}
-        for m in materials.list_materials(session)
-    ]
+    out = []
+    for m in materials.list_materials(session):
+        avail = m.stock_qty - m.reserved_qty
+        out.append({"id": m.id, "type": m.type, "stock_qty": m.stock_qty,
+                    "reserved_qty": m.reserved_qty, "available": avail,
+                    "low_stock": avail < 100})
+    return out
 
 
 # ---- jobs ----
@@ -255,16 +257,22 @@ def cancel(job_id: str, user: User = Depends(current_user), session: Session = D
 
 
 @router.get("/jobs")
-def list_jobs(user: User = Depends(current_user), session: Session = Depends(db)):
+def list_jobs(limit: int = 100, offset: int = 0,
+              user: User = Depends(current_user), session: Session = Depends(db)):
     from .constants import Role
 
     client_id = user.id if user.role == Role.CLIENT else None
-    return [_job_view(session, j) for j in jobs.list_jobs(session, client_id=client_id)]
+    rows = jobs.list_jobs(session, client_id=client_id)[offset:offset + limit]
+    return [_job_view(session, j) for j in rows]
 
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, user: User = Depends(current_user), session: Session = Depends(db)):
+    from .constants import Role
+
     job = jobs.get_job(session, job_id)
+    if user.role == Role.CLIENT and job.client_id != user.id:
+        raise HTTPException(status_code=404, detail="job not found")
     return _job_view(session, job)
 
 
@@ -272,15 +280,37 @@ def get_job(job_id: str, user: User = Depends(current_user), session: Session = 
 
 @router.get("/audit/events")
 def audit_events(action: str | None = None, target: str | None = None,
+                 limit: int = 200, offset: int = 0,
                  user: User = Depends(current_user), session: Session = Depends(db)):
     from .auth import require
 
     require(user, "audit.read")
+    rows = audit.list_events(session, action=action, target=target, limit=100000)[offset:offset + limit]
     return [
         {"seq": e.seq, "actor": e.actor, "action": e.action, "target": e.target,
          "payload": e.payload, "this_hash": e.this_hash, "ts": e.ts}
-        for e in audit.list_events(session, action=action, target=target)
+        for e in rows
     ]
+
+
+@router.get("/audit/export.csv")
+def audit_export_csv(target: str | None = None,
+                     user: User = Depends(current_user), session: Session = Depends(db)):
+    import csv
+    import io
+
+    from fastapi.responses import Response
+
+    from .auth import require
+
+    require(user, "audit.read")
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["seq", "actor", "action", "target", "ts", "this_hash"])
+    for e in audit.list_events(session, target=target, limit=1_000_000):
+        writer.writerow([e.seq, e.actor, e.action, e.target, e.ts, e.this_hash])
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=audit.csv"})
 
 
 @router.get("/audit/verify")

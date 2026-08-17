@@ -57,3 +57,42 @@ def test_material_reserved_and_consumed(session, actors):
                       material_lot_id="mat-pla-001", grams=25.0, scenario=Scenario.LEGITIMATE, duration=90)
     after = materials.available(session, "mat-pla-001")
     assert after == before - 25.0
+
+
+def test_sabotage_pipeline_fails_closed(session, actors):
+    _seed(session)
+    job = jobs.run_pipeline(session, actors["client"], actors["operator"],
+                            design=b"sab", design_name="weak.3mf", material_lot_id="mat-pla-001",
+                            scenario=Scenario.SABOTAGED, duration=160)
+    assert job.status == JobStatus.FAILED  # never Verified@A0 with a screening anomaly
+
+
+def test_cancel_submitted_job_does_not_release_others_reservation(session, actors):
+    _seed(session)
+    a = jobs.create_job(session, actors["client"], design=b"a", design_name="a.3mf",
+                        material_lot_id="mat-pla-001", grams=60)
+    jobs.authorize_job(session, actors["operator"], a.id)
+    reserved_avail = materials.available(session, "mat-pla-001")
+    # B is created but never authorized (no reservation), then cancelled by its owner
+    b = jobs.create_job(session, actors["client"], design=b"b", design_name="b.3mf",
+                        material_lot_id="mat-pla-001", grams=60)
+    jobs.cancel_job(session, actors["client"], b.id)
+    assert materials.available(session, "mat-pla-001") == reserved_avail  # A intact
+
+
+def test_capacity_exhaustion_queues_then_promotes(session, actors):
+    materials.register_lot(session, id="mat-pla-001", type="PLA", stock_qty=1000)
+    printers.add_printer(session, id="printer-01", model="P", materials=["PLA"], tolerance_class="fine")
+    session.flush()
+    j1 = jobs.create_job(session, actors["client"], design=b"1", design_name="1.3mf",
+                         material_lot_id="mat-pla-001", scenario=Scenario.LEGITIMATE, duration=90)
+    j2 = jobs.create_job(session, actors["client"], design=b"2", design_name="2.3mf",
+                         material_lot_id="mat-pla-001", scenario=Scenario.LEGITIMATE, duration=90)
+    jobs.authorize_job(session, actors["operator"], j1.id)
+    jobs.authorize_job(session, actors["operator"], j2.id)
+    jobs.schedule_job(session, actors["operator"], j1.id)   # gets the only printer
+    r2 = jobs.schedule_job(session, actors["operator"], j2.id)  # queued
+    assert (r2.meta or {}).get("queued") is True
+    assert r2.status == JobStatus.AUTHORIZED
+    jobs.dispatch_job(session, actors["operator"], j1.id)   # completes, frees printer, promotes j2
+    assert jobs.get_job(session, j2.id).status == JobStatus.SCHEDULED

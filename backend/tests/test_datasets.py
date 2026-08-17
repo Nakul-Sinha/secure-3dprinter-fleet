@@ -13,3 +13,13 @@ def test_dataset_generation(tmp_path):
     assert sum(counts.values()) == 100
     for name in ["jobs.csv", "materials.csv", "printers.csv", "users.csv", "telemetry.csv"]:
         assert os.path.exists(os.path.join(tmp_path, name))
+
+
+def test_dataset_generation_is_deterministic(tmp_path):
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    generate(str(a), n_jobs=20)
+    generate(str(b), n_jobs=20)
+    # telemetry must be byte-identical across process-independent regenerations
+    assert (a / "telemetry.csv").read_text() == (b / "telemetry.csv").read_text()
+    assert (a / "jobs.csv").read_text() == (b / "jobs.csv").read_text()

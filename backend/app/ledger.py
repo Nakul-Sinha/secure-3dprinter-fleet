@@ -2,8 +2,14 @@
 
 The same event schema runs on a chain (consensus enforced) or on a local
 signed transparency log (evidenced). The MVP default is the log adapter: a
-hash-chained, HMAC-signed append-only event stream that makes any edit or
-deletion detectable. This is the tier-A0 tamper-evidence guarantee.
+hash-chained, HMAC-signed append-only event stream. Any edit to, or deletion
+from the middle of, the chain is detectable (it breaks a hash link).
+
+Honest limit: deletion of the most recent (tail) events is NOT detectable from
+the log alone, because the truncated chain remains internally consistent.
+Closing that gap requires an external anchor of the signed head (public-chain
+anchoring plus a qualified timestamp), which is Phase B. At tier A0 this is a
+tamper-EVIDENT log, not a tamper-resistant ledger.
 """
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .crypto import canonical_bytes, hmac_sign, hmac_verify, sha256_hex
+from .crypto import audit_key, canonical_bytes, hmac_sign, hmac_verify, sha256_hex
 from .models import AuditEvent, now_iso
 
 
@@ -65,7 +71,7 @@ class LogLedger(LedgerAdapter):
         session.add(ev)
         session.flush()  # assign seq
         ev.this_hash = _event_hash(ev.seq, actor, action, target, payload, prev, ev.ts)
-        ev.signature = hmac_sign(ev.this_hash.encode())
+        ev.signature = hmac_sign(ev.this_hash.encode(), audit_key())
         session.flush()
         return ev
 
@@ -78,7 +84,7 @@ class LogLedger(LedgerAdapter):
                 return ChainCheck(False, len(rows), ev.seq, "hash mismatch (record altered)")
             if ev.prev_hash != prev:
                 return ChainCheck(False, len(rows), ev.seq, "broken chain link")
-            if not hmac_verify(ev.this_hash.encode(), ev.signature):
+            if not hmac_verify(ev.this_hash.encode(), ev.signature, audit_key()):
                 return ChainCheck(False, len(rows), ev.seq, "bad signature")
             prev = ev.this_hash
         return ChainCheck(True, len(rows))
@@ -88,14 +94,12 @@ _ledger: LedgerAdapter | None = None
 
 
 def get_ledger() -> LedgerAdapter:
+    """The generic audit stream is always the signed transparency log. On-chain
+    anchoring of the domain lifecycle (jobs, roles) is handled separately by the
+    optional chain bridge (see chain.py), enabled with APP_LEDGER=chain."""
     global _ledger
     if _ledger is None:
-        if settings.ledger == "chain":
-            from .chain import ChainLedger
-
-            _ledger = ChainLedger()
-        else:
-            _ledger = LogLedger()
+        _ledger = LogLedger()
     return _ledger
 
 

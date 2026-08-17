@@ -155,39 +155,85 @@ function statusClass(s) {
 
 // ---- fleet / materials ----
 async function renderFleet() {
-  $("#view").innerHTML = `<section class="card"><h1>Fleet monitor</h1><div id="f">loading...</div></section>`;
+  $("#view").innerHTML = `<section class="card"><h1>Fleet monitor</h1><div id="f">loading...</div><div id="pdetail"></div></section>`;
   const printers = await api("/printers");
-  $("#f").innerHTML = `<table><thead><tr><th>id</th><th>model</th><th>status</th><th>materials</th><th>job</th></tr></thead><tbody>${printers.map((p) => `<tr><td class="mono">${esc(p.id)}</td><td>${esc(p.model)}</td><td><span class="badge ${p.status === "idle" ? "ok" : "info"}">${esc(p.status)}</span></td><td>${esc((p.materials || []).join(", "))}</td><td class="mono">${esc(p.current_job || "-")}</td></tr>`).join("")}</tbody></table>`;
+  $("#f").innerHTML = `<table><thead><tr><th>id</th><th>model</th><th>status</th><th>materials</th><th>tolerance</th><th>health</th><th>job</th></tr></thead><tbody>${printers.map((p) => `<tr class="clickable" data-p='${esc(JSON.stringify(p))}'><td class="mono">${esc(p.id)}</td><td>${esc(p.model)}</td><td><span class="badge ${p.status === "idle" ? "ok" : "info"}">${esc(p.status)}</span></td><td>${esc((p.materials || []).join(", "))}</td><td>${esc(p.tolerance_class || "")}</td><td>${esc(p.health || "")}</td><td class="mono">${esc(p.current_job || "-")}</td></tr>`).join("")}</tbody></table>`;
+  $("#f").querySelectorAll("[data-p]").forEach((row) => (row.onclick = () => {
+    const p = JSON.parse(row.dataset.p);
+    $("#pdetail").innerHTML = `<div class="card sub"><h3>${esc(p.id)} — ${esc(p.model)}</h3>
+      <p class="mono">status=${esc(p.status)} health=${esc(p.health)} tolerance=${esc(p.tolerance_class)}<br>
+      materials=${esc((p.materials || []).join(", "))} current_job=${esc(p.current_job || "-")}</p></div>`;
+  }));
 }
 
 async function renderMaterials() {
   $("#view").innerHTML = `<section class="card"><h1>Materials</h1><div id="m">loading...</div></section>`;
   const mats = await api("/materials");
-  $("#m").innerHTML = `<table><thead><tr><th>id</th><th>type</th><th>available</th></tr></thead><tbody>${mats.map((m) => `<tr><td class="mono">${esc(m.id)}</td><td>${esc(m.type)}</td><td>${m.available}</td></tr>`).join("")}</tbody></table>`;
+  $("#m").innerHTML = `<table><thead><tr><th>id</th><th>type</th><th>available</th><th></th></tr></thead><tbody>${mats.map((m) => `<tr><td class="mono">${esc(m.id)}</td><td>${esc(m.type)}</td><td>${m.available}</td><td>${m.low_stock ? '<span class="badge warn">low stock</span>' : ''}</td></tr>`).join("")}</tbody></table>`;
 }
 
 // ---- audit ----
 async function renderAudit() {
   $("#view").innerHTML = `<section class="card"><h1>Audit trail</h1>
-    <button id="verify" class="btn">Verify chain integrity</button><span id="vres" class="muted"></span>
+    <button id="verify" class="btn">Verify chain integrity</button>
+    <button id="csv" class="btn ghost">Export CSV</button>
+    <span id="vres" class="muted"></span>
     <div id="events" class="muted">loading...</div></section>`;
   $("#verify").onclick = async () => {
     const r = await api("/audit/verify");
     $("#vres").innerHTML = r.ok ? `<span class="badge ok">intact (${r.count} events)</span>` : `<span class="badge bad">tampered: ${esc(r.reason)}</span>`;
   };
+  $("#csv").onclick = async () => {
+    const res = await fetch("/api/audit/export.csv", { headers: { Authorization: "Bearer " + state.token } });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "audit.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
   const evs = await api("/audit/events");
   $("#events").innerHTML = `<table><thead><tr><th>seq</th><th>actor</th><th>action</th><th>target</th><th>ts</th></tr></thead><tbody>${evs.map((e) => `<tr><td>${e.seq}</td><td>${esc(e.actor)}</td><td>${esc(e.action)}</td><td class="mono">${esc((e.target || "").slice(0, 14))}</td><td class="muted">${esc((e.ts || "").slice(0, 19))}</td></tr>`).join("")}</tbody></table>`;
 }
 
-// ---- admin ----
+// ---- admin (UI-7: user administration) ----
 async function renderAdmin() {
   $("#view").innerHTML = `<section class="card"><h1>Admin</h1>
-    <p class="muted">Seed demo operators, clients, printers, and materials for the walkthrough.</p>
-    <button id="seed" class="btn">Seed demo data</button><span id="seedmsg" class="muted"></span></section>`;
+    <p class="muted">Seed demo data, and manage users and roles.</p>
+    <button id="seed" class="btn">Seed demo data</button><span id="seedmsg" class="muted"></span>
+  </section>
+  <section class="card"><h2>Users</h2>
+    <div class="grid">
+      <label>User id<input id="nu" placeholder="new-user" /></label>
+      <label>Role<select id="nr"><option>Client</option><option>Operator</option><option>Auditor</option><option>Admin</option></select></label>
+    </div>
+    <button id="createu" class="btn">Create / update user</button><span id="umsg" class="muted"></span>
+    <div id="userlist" class="muted">loading...</div>
+  </section>`;
   $("#seed").onclick = async () => {
-    try { await api("/demo/seed", "POST"); $("#seedmsg").textContent = "seeded"; }
+    try { await api("/demo/seed", "POST"); $("#seedmsg").textContent = "seeded"; loadUsers(); }
     catch (e) { $("#seedmsg").textContent = e.message; }
   };
+  $("#createu").onclick = async () => {
+    try {
+      await api("/users", "POST", { id: $("#nu").value, role: $("#nr").value });
+      $("#umsg").textContent = "saved"; loadUsers();
+    } catch (e) { $("#umsg").textContent = e.message; }
+  };
+  loadUsers();
+}
+
+async function loadUsers() {
+  try {
+    const users = await api("/users");
+    $("#userlist").innerHTML = `<table><thead><tr><th>id</th><th>role</th><th>org</th><th>change role</th></tr></thead><tbody>${users.map((u) => `<tr><td class="mono">${esc(u.id)}</td><td><span class="badge info">${esc(u.role)}</span></td><td>${esc(u.org)}</td><td>
+      <select data-role="${esc(u.id)}"><option>Client</option><option>Operator</option><option>Auditor</option><option>Admin</option></select>
+      <button class="btn small" data-grant="${esc(u.id)}">Set</button></td></tr>`).join("")}</tbody></table>`;
+    $("#userlist").querySelectorAll("[data-grant]").forEach((b) => (b.onclick = async () => {
+      const sel = $("#userlist").querySelector(`select[data-role="${b.dataset.grant}"]`);
+      try { await api(`/users/${b.dataset.grant}/role`, "POST", { role: sel.value }); loadUsers(); }
+      catch (e) { alert(e.message); }
+    }));
+  } catch (e) { $("#userlist").innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
 }
 
 health();

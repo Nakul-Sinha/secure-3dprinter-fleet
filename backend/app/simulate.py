@@ -9,10 +9,17 @@ Produces per-bucket telemetry for three labeled scenarios:
 """
 from __future__ import annotations
 
+import hashlib
+
 import numpy as np
 
 from .config import settings
 from .constants import Phase, Scenario
+
+
+def _stable_seed(job_id: str, seed: int) -> int:
+    """Process-stable seed (Python's built-in hash is randomized per run)."""
+    return int.from_bytes(hashlib.sha256(f"{job_id}|{seed}".encode()).digest()[:8], "big")
 
 
 def expected_timeline(duration: int) -> list[str]:
@@ -49,7 +56,7 @@ def _sample(rng, env, key):
 
 
 def simulate(job_id: str, duration: int, scenario: str, seed: int = 0) -> list[dict]:
-    rng = np.random.default_rng(abs(hash((job_id, seed))) % (2**32))
+    rng = np.random.default_rng(_stable_seed(job_id, seed))
     timeline = expected_timeline(duration)
     envelopes = settings.envelopes
     idle_env = envelopes[Phase.IDLE]

@@ -70,6 +70,9 @@ class Job(Base):
     assurance_tier: Mapped[str] = mapped_column(String, default="A0")
     priority: Mapped[int] = mapped_column(Integer, default=5)
     tolerance_class: Mapped[str] = mapped_column(String, default="standard")
+    bbox_x: Mapped[int] = mapped_column(Integer, default=100)
+    bbox_y: Mapped[int] = mapped_column(Integer, default=100)
+    bbox_z: Mapped[int] = mapped_column(Integer, default=100)
     object_ref: Mapped[str | None] = mapped_column(String, nullable=True)  # CID
     file_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     verdict: Mapped[str] = mapped_column(String, default="none")
