@@ -2,90 +2,114 @@
 
 A blockchain-based platform for securely managing a fleet of 3D printers. It gives design owners, fleet operators, and auditors a shared, tamper-evident record of every print job, protects design intellectual property, and can prove that a job physically ran without trusting the machine or its operator.
 
-This repository is the design and build source for the project. It contains the full requirements, architecture, a free and deployable MVP plan for investor demos, a phased build plan that engineering agents can follow one step at a time, and a complete feature inventory.
+_[work in progress] The tier-A0 MVP is built, tested, and running; the higher-assurance tiers are the staged roadmap in [Phases.md](Phases.md)._
 
-## The problem
+![CI](https://github.com/Nakul-Sinha/secure-3dprinter-fleet/actions/workflows/ci.yml/badge.svg)
 
-Distributed and outsourced manufacturing creates a trust gap. When a company sends a design file to a printer it does not fully control, four risks appear:
+## What this is
 
-1. Intellectual property theft. The design file (CAD or G-code) can be intercepted or copied by whoever runs the printer.
-2. Tampering. Print files and logs can be altered, and defects can be introduced into a part that still looks correct from the outside.
-3. False completion. An operator or a faulty machine can claim a job was printed and demand payment without the work actually happening.
-4. No shared audit trail. There is no single record that a client, an operator, and a regulator can all trust and none can secretly rewrite.
+Distributed and outsourced manufacturing creates a trust gap: when a company sends a design to a printer it does not fully control, the design can be stolen, print files and logs can be altered, a defective part can be passed off as good, and no single record exists that a client, an operator, and a regulator all trust and none can secretly rewrite.
 
-## The aim
+This platform closes that gap. It manages multiple printers end to end (upload, authorize, schedule, dispatch, monitor, audit), stores design files and logs so that any change is cryptographically detectable, enforces access control and the job lifecycle in smart contracts on a permissioned chain, and produces an immutable, queryable history with verifiable timestamps. On top of that base it adds a verification overlay that makes a fake "job complete" signal statistically very hard to forge.
 
-Build one system that:
+## Core principle: honest, tiered assurance
 
-- Manages multiple printers securely: upload, authorize, schedule, dispatch, monitor, and audit.
-- Stores print files and logs so that any change is cryptographically detectable.
-- Enforces access control and job rules in smart contracts on a permissioned blockchain.
-- Produces an immutable, queryable history with verifiable timestamps.
-- Can be upgraded, without re-architecture, to prove that a job physically ran and that the correct part was produced.
-
-## The direction: honest, tiered assurance
-
-The guiding principle of this project is simple and strict: cryptography cannot vouch for physical reality it did not independently observe. Every guarantee is scoped to the trust configuration that actually earns it, and the system fails closed to the weaker honest claim rather than overclaiming.
-
-The blockchain is present at every level. What changes across levels is the strength of the claim you are allowed to make.
+The guiding rule of the project is strict: cryptography cannot vouch for physical reality it did not independently observe. Every guarantee is scoped to the trust configuration that earns it, and the system fails closed to the weaker honest claim rather than overclaiming. The blockchain is present at every level; what changes across levels is the strength of the claim you are allowed to make.
 
 | Tier | Honest claim | What it needs |
 | --- | --- | --- |
-| A0 (base) | Tamper-evident. Any edit or deletion is detectable. Timeline carries an EU rebuttable legal presumption of time. Not yet Byzantine-fault-tolerant. | The base product on a permissioned chain. Ships in weeks, software only. |
-| A1 | Tamper-resistant across mutually distrusting parties. | Two or more independent organizations each run a validator (four or more for fault tolerance). |
-| A2 | Quantified guarantee against gross false completion (a job that mostly did not run). | At least one genuinely independent witness sensor. |
-| A3 | High assurance that the correct part was physically produced. Payment gates here. | Independent witness plus independent physical ratification (X-ray CT or PUF). One hundred percent CT for safety-critical parts. |
+| A0 | Tamper-evident. Any edit or deletion is detectable. Not yet Byzantine-fault-tolerant. | The base product on a permissioned chain. Software only. |
+| A1 | Tamper-resistant across mutually distrusting parties. | Two or more independent organizations each run a validator. |
+| A2 | Quantified guarantee against gross false completion. | At least one genuinely independent witness sensor. |
+| A3 | High assurance that the correct part was physically produced. Payment gates here. | Independent witness plus physical ratification (X-ray CT or PUF). |
 
-The core sentence to remember: the chain is the deliverable, Byzantine-fault-tolerant trust is a tiered claim, and physically verified correctness is the top tier and the only basis for gating payment on safety-critical parts.
+The one sentence to remember: the chain is the deliverable, Byzantine-fault-tolerant trust is a tiered claim, and physically verified correctness is the top tier and the only basis for gating payment on safety-critical parts.
 
-## What makes this different
+## Features
 
-Provenance and licensing for additive manufacturing already exist commercially. The differentiator here is verifiable physical execution: a protocol that makes a fake "job complete" signal statistically very hard to forge, using an unpredictable, publicly re-derivable sampling schedule and independent sensors, without trusting the printer. The design is honest about the limit of that guarantee and pairs it with physical part ratification for the cases that require certainty.
+The tier-A0 build delivers the full base product:
 
-## Repository structure
-
-| Document | Purpose |
-| --- | --- |
-| [README.md](README.md) | This file. Project overview, aim, and direction. |
-| [Architecture.md](Architecture.md) | System architecture, trust model, protocol, data model, and smart contracts. |
-| [MVP.md](MVP.md) | A free to build, deployable MVP for investor demos, with a demo script and a zero-cost stack. |
-| [Phases.md](Phases.md) | Detailed phase by phase build plan and feature distribution for engineering agents to build one step at a time. |
-| [Features.md](Features.md) | Full feature and building-block inventory, tagged by module, tier, and phase. |
-| [PRD.md](PRD.md) | Product Requirements Document. Enumerated functional and non-functional requirements with acceptance criteria and traceability. |
-
-Suggested reading order: README, then MVP for the near-term goal, then Phases and Features to build, with Architecture and PRD as the reference specifications.
+- Role-based access control (Admin, Operator, Client, Auditor) enforced in smart contracts, with separation of duties.
+- Encrypted, content-addressed storage of design files (envelope encryption with a per-job data key); tampering is detected before a printer ever runs the file.
+- A hash-chained, signed, append-only audit log with verifiable timestamps, and a signed audit bundle that re-verifies offline.
+- Secure job scheduling across multiple printers: capability and health matching, reservations, concurrency, and a real queue under capacity exhaustion.
+- Material and inventory management with reserve, consume, and low-stock signals.
+- A commit-then-beacon verification engine that bounds gross false completion with an unpredictable, publicly re-derivable sampling schedule, plus continuous screening that catches localized sabotage and gates the verdict (so a flagged part never shows as verified).
+- A synthetic dataset generator (100 jobs across 5 printers and 3 materials, with labeled telemetry).
+- A web dashboard for login, job submission, fleet monitoring, tier-tagged job status, user administration, and the audit viewer with an integrity check and CSV export.
+- A real on-chain path (web3) that binds to the deployed registries and enforces roles, proven end to end in continuous integration against a live chain.
 
 ## Technology stack
 
-- Smart contracts: Solidity.
-- Chain: Hyperledger Besu (QBFT) for pilots and production. Hardhat or Anvil for local development and the MVP.
-- Backend: Python (FastAPI) or Node. Web3 bindings for chain interaction.
-- Storage: encrypted object store (MinIO or S3 compatible) with content addressing. Local storage for the MVP.
-- Encryption: envelope encryption, AES-256-GCM data keys wrapped by a key management service.
-- Randomness (A2 and above): drand threshold randomness beacon.
-- Frontend: React or a light HTML and JavaScript dashboard.
-- Printer integration: driver abstraction over Moonraker, OctoPrint, Duet, and others.
+- Smart contracts: Solidity, tested with Hardhat. Runs on a local chain for development and on Hyperledger Besu (QBFT) for a permissioned deployment.
+- Backend: Python with FastAPI; SQLAlchemy; cryptography; web3 for the chain path.
+- Randomness (A2 and above): the drand threshold beacon.
+- Frontend: a vanilla HTML and JavaScript dashboard served by the backend.
+- Continuous integration: GitHub Actions runs the contract tests, the backend test suite, and a chain-integration job that deploys to a Hardhat node.
 
-## MVP at a glance
+## Quickstart
 
-The MVP is the A0 tier, built entirely with free and local tooling, deployable on a single laptop or a free tier host. It demonstrates the working management product and a simulated anti-false-completion check, and it establishes the credible path to the defensible verification moat. See [MVP.md](MVP.md) for the full plan and the investor demo script.
+Prerequisites: Node.js 20 or newer and Python 3.12 or newer.
 
-## Roadmap
+Contracts:
 
-- Phase A: the base management product on a permissioned chain (the MVP, tier A0).
-- Phase B: low-cost trust wins, including a power meter signal and public anchoring with qualified timestamps.
-- Phase C: multi-organization deployment, tier A1.
-- Phase D: the verifiable-execution stack, tiers A2 and A3.
+```
+cd contracts
+npm install
+npx hardhat test
+```
 
-See [Phases.md](Phases.md) for detailed, buildable work.
+Backend, dashboard, and tests:
 
-## Honest scope and disclaimer
+```
+cd backend
+pip install -r requirements.txt
+pytest
+uvicorn app.main:app --reload
+```
 
-This system raises the cost and the detection probability of cheating by orders of magnitude. It does not make cheating cryptographically impossible. The first-mile physical measurement and the identity of the delivered part are irreducible trust roots. The design states these limits openly and never uses the words trustless or tamper-proof to describe what is in fact tamper-evident and probabilistic. Claims shown to a user always reflect the tier that the deployment actually earns.
+The dashboard is served at http://127.0.0.1:8000. Sign in as `admin`, seed the demo data, then follow the walkthrough in [MVP.md](MVP.md): submit a job, run it, try tampering (detected), run a fake completion (rejected), and attempt an unauthorized action (blocked). The whole MVP runs on a laptop at zero cost.
+
+Optional real-chain path:
+
+```
+cd contracts
+npx hardhat node            # terminal 1: local chain
+npm run deploy:local        # terminal 2: deploy the registries
+cd ../backend && APP_LEDGER=chain pytest tests/test_chain_integration.py
+```
+
+## Repository structure
+
+| Path | Contents |
+| --- | --- |
+| `contracts/` | Solidity smart contracts and Hardhat tests. |
+| `backend/` | FastAPI application, domain logic, and the pytest suite. |
+| `frontend/` | Vanilla HTML and JavaScript dashboard, served by the backend. |
+| `datasets/` | Synthetic datasets and the generator. |
+| `.github/workflows/` | Continuous integration. |
+
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [Architecture.md](Architecture.md) | System architecture, trust model, protocol, data model, and smart contracts. |
+| [PRD.md](PRD.md) | Product requirements: enumerated functional and non-functional requirements with acceptance criteria. |
+| [MVP.md](MVP.md) | The free, deployable MVP and the investor demo script. |
+| [Phases.md](Phases.md) | The phase-by-phase build plan and feature distribution. |
+| [Features.md](Features.md) | Full feature and building-block inventory. |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | How to build and run each part. |
+| [KNOWN_GAPS.md](KNOWN_GAPS.md) | What tier A0 intentionally defers, stated plainly. |
 
 ## Status
 
-Design complete and reviewed. The MVP (Phase A) is the next build step.
+- Phase 0 (foundation and CI): done.
+- Phase A (the tier-A0 MVP): done, reviewed, and merged. Continuous integration is green across contracts, backend, and the chain-integration job.
+- Phases B, C, and D (real sensors and printers, a multi-organization consortium, and the physical-ratification stack): planned and specified in [Phases.md](Phases.md). They require hardware and infrastructure and are the next build steps.
+
+## Honest scope
+
+This platform raises the cost and the detection probability of cheating by orders of magnitude. It does not make cheating cryptographically impossible: the first-mile physical measurement and the identity of the delivered part are irreducible trust roots. The A0 build uses simulated printers and sensors, its guarantee is tamper-evidence plus anti-false-completion in simulation, and every verdict shown to a user is tier-tagged so nothing overclaims. See [KNOWN_GAPS.md](KNOWN_GAPS.md) for the full, honest list.
 
 ## License
 
