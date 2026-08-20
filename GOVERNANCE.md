@@ -32,7 +32,7 @@ configuration and make no multi-party claim.
 | Auditor | Regulator, insurer, or customer | Read everything, verify exports | Write anything |
 | Verifier | Neutral verification service | Report a verdict to the escrow | Arbitrate a dispute |
 | Arbiter | Neutral party, distinct from the verifier | Resolve disputes | Report verdicts |
-| Guardian | Security responders | Cancel a queued governance action | Execute one |
+| Guardian | Security responders | Cancel a queued governance action | Execute one, or propose one |
 
 Separation of duties is enforced in code, not by convention: roles are discrete
 rather than hierarchical, so an administrator is not implicitly an operator, and
@@ -47,10 +47,17 @@ Every privileged action runs through `MultiSigTimelock`:
 3. After the delay the action may execute. Recommended delay: 48 hours for
    routine changes, and no less than 24 hours for anything touching upgrades or
    funds.
-4. A guardian may cancel a queued action at any point before execution.
+4. A guardian, and only a guardian, may cancel a queued action before it
+   executes. A cancelled action may be proposed again from a clean slate.
 
 The asymmetry is deliberate. Stopping an action is safe and is therefore easy;
 starting one is dangerous and is therefore slow and requires several people.
+Cancellation is deliberately withheld from individual signers: if any one signer
+could cancel, an M-of-N multisig would in practice be a 1-of-N veto.
+
+Membership changes, threshold changes, and delay changes are themselves
+privileged actions executed through the timelock, so a lost or compromised
+signer key can be rotated out under the same approval and delay rules.
 
 ## Validator membership
 
@@ -67,8 +74,18 @@ the fleet owner when the fleet owner is a party to the deal, otherwise the
 dispute layer reproduces the capture problem the consortium exists to avoid.
 
 Arbitration is bounded. If the arbitration window expires with no decision,
-anyone may unwind the deal neutrally: each side receives its own funds back.
-Nobody profits from stalling and nothing can be locked forever.
+anyone may unwind the deal neutrally: each side receives its own stake back, so
+nothing can be locked forever. The arbiter may extend the window, so expiry
+reflects a genuine failure to arbitrate rather than a party running out the
+clock.
+
+One limit must be stated plainly. If a part really was delivered and arbitration
+still expires, the neutral unwind returns the payment to the buyer, which
+favours the buyer. No on-chain rule can know whether physical goods changed
+hands. The honest claim is therefore that funds never stick indefinitely and
+that no party can profit from stalling while arbitration remains live, not that
+stalling can never pay under any circumstances. Keeping arbitration responsive
+is a governance duty, not a property the contract can enforce alone.
 
 ## Upgrades
 

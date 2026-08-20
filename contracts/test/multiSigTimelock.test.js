@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-const DELAY = 3600;
+const DELAY = 24 * 3600; // the contract enforces a 24h floor
 const ROLE = { None: 0, Client: 1, Operator: 2, Admin: 3, Auditor: 4 };
 
 async function deploy() {
@@ -62,7 +62,77 @@ describe("MultiSigTimelock", function () {
     await gov.connect(guardian).cancel(id);
     await ethers.provider.send("evm_increaseTime", [DELAY + 1]);
     await ethers.provider.send("evm_mine", []);
-    await expect(gov.connect(a).execute(id)).to.be.revertedWithCustomError(gov, "AlreadyFinalized");
+    await expect(gov.connect(a).execute(id)).to.be.revertedWithCustomError(gov, "UnknownOperation");
+  });
+
+  it("does not let one signer veto the majority", async function () {
+    const { gov, a, b, c, target } = await deploy();
+    const salt = ethers.id("op-veto");
+    const id = await gov.operationId(target.address, 0, "0x", salt);
+    await gov.connect(a).queue(target.address, 0, "0x", salt);
+    await gov.connect(b).approve(id);
+    // a lone dissenting signer must not be able to kill the action
+    await expect(gov.connect(c).cancel(id)).to.be.revertedWithCustomError(gov, "NotGuardian");
+    await ethers.provider.send("evm_increaseTime", [DELAY + 1]);
+    await ethers.provider.send("evm_mine", []);
+    await gov.connect(a).execute(id);
+  });
+
+  it("allows a cancelled action to be proposed again from a clean slate", async function () {
+    const { gov, a, b, guardian, target } = await deploy();
+    const salt = ethers.id("op-requeue");
+    const id = await gov.operationId(target.address, 0, "0x", salt);
+    await gov.connect(a).queue(target.address, 0, "0x", salt);
+    await gov.connect(guardian).cancel(id);
+    // same action, proposed again: approvals start fresh
+    await gov.connect(a).queue(target.address, 0, "0x", salt);
+    expect(await gov.approved(id, a.address)).to.equal(true);
+    expect(await gov.approved(id, b.address)).to.equal(false);
+    await gov.connect(b).approve(id);
+    await ethers.provider.send("evm_increaseTime", [DELAY + 1]);
+    await ethers.provider.send("evm_mine", []);
+    await gov.connect(a).execute(id);
+  });
+
+  it("rotates signers only through its own timelock", async function () {
+    const { gov, a, b, outsider } = await deploy();
+    // a direct call must fail: rotation needs M-of-N plus the delay
+    await expect(gov.connect(a).addSigner(outsider.address)).to.be.revertedWithCustomError(gov, "NotSigner");
+
+    const data = gov.interface.encodeFunctionData("addSigner", [outsider.address]);
+    const salt = ethers.id("op-rotate");
+    const id = await gov.operationId(await gov.getAddress(), 0, data, salt);
+    await gov.connect(a).queue(await gov.getAddress(), 0, data, salt);
+    await gov.connect(b).approve(id);
+    await ethers.provider.send("evm_increaseTime", [DELAY + 1]);
+    await ethers.provider.send("evm_mine", []);
+    await gov.connect(a).execute(id);
+    expect(await gov.isSigner(outsider.address)).to.equal(true);
+    expect(await gov.signerCount()).to.equal(4n);
+  });
+
+  it("refuses to remove a signer below the threshold", async function () {
+    const { gov, a, b, c } = await deploy();
+    const data = gov.interface.encodeFunctionData("removeSigner", [c.address]);
+    const salt = ethers.id("op-remove");
+    const id = await gov.operationId(await gov.getAddress(), 0, data, salt);
+    await gov.connect(a).queue(await gov.getAddress(), 0, data, salt);
+    await gov.connect(b).approve(id);
+    await ethers.provider.send("evm_increaseTime", [DELAY + 1]);
+    await ethers.provider.send("evm_mine", []);
+    // 3 signers, threshold 2: removing one is allowed
+    await gov.connect(a).execute(id);
+    expect(await gov.signerCount()).to.equal(2n);
+
+    // removing another would drop below the threshold
+    const data2 = gov.interface.encodeFunctionData("removeSigner", [b.address]);
+    const salt2 = ethers.id("op-remove-2");
+    const id2 = await gov.operationId(await gov.getAddress(), 0, data2, salt2);
+    await gov.connect(a).queue(await gov.getAddress(), 0, data2, salt2);
+    await gov.connect(b).approve(id2);
+    await ethers.provider.send("evm_increaseTime", [DELAY + 1]);
+    await ethers.provider.send("evm_mine", []);
+    await expect(gov.connect(a).execute(id2)).to.be.revertedWithCustomError(gov, "CallFailed");
   });
 
   it("rejects non-signers and double approval", async function () {
@@ -87,9 +157,10 @@ describe("MultiSigTimelock", function () {
   });
 
   it("rejects a bad constructor configuration", async function () {
-    const [a] = await ethers.getSigners();
+    const [a, b] = await ethers.getSigners();
     const F = await ethers.getContractFactory("MultiSigTimelock");
     await expect(F.deploy([a.address], 2, DELAY, [])).to.be.revertedWith("bad threshold");
     await expect(F.deploy([a.address, a.address], 2, DELAY, [])).to.be.revertedWith("duplicate signer");
+    await expect(F.deploy([a.address, b.address], 2, 60, [])).to.be.revertedWith("delay too short");
   });
 });

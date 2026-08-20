@@ -33,13 +33,25 @@ async function main() {
   await governance.waitForDeployment();
 
   // Escrow: the verifier and the arbiter must be different parties, and neither
-  // is the operator that runs the job.
+  // is the operator that runs the job. The arbiter is governance, not an EOA,
+  // so no single key can move escrowed funds.
+  const governanceAddr = await governance.getAddress();
   const verifier = signers[4] ? signers[4].address : deployer.address;
-  const arbiter = signers[5] ? signers[5].address : await governance.getAddress();
   const escrow = await (await ethers.getContractFactory("SettlementEscrow")).deploy(
-    verifier, arbiter, 24 * 3600, 7 * 24 * 3600
+    verifier, governanceAddr, 24 * 3600, 7 * 24 * 3600, 2000
   );
   await escrow.waitForDeployment();
+
+  // Hand fleet administration to governance and renounce the deployer key.
+  // Leaving the deployer as Admin would contradict the charter rule that no
+  // single key can change roles. grantRole does not revoke, so both calls are
+  // required, and the renounce must come last.
+  await (await acl.grantRole(governanceAddr, 3 /* Admin */)).wait();
+  const isDevChain = ["hardhat", "localhost"].includes(hre.network.name);
+  const renounce = process.env.KEEP_DEPLOYER_ADMIN !== "1" && !isDevChain;
+  if (renounce) {
+    await (await acl.grantRole(deployer.address, 0 /* None */)).wait();
+  }
 
   const out = {
     network: hre.network.name,
@@ -47,10 +59,15 @@ async function main() {
     PrinterRegistry: await printerRegistry.getAddress(),
     JobRegistry: await jobRegistry.getAddress(),
     AnchorRegistry: await anchorRegistry.getAddress(),
-    MultiSigTimelock: await governance.getAddress(),
+    MultiSigTimelock: governanceAddr,
     SettlementEscrow: await escrow.getAddress(),
     deployer: deployer.address,
+    deployerIsAdmin: !renounce,
   };
+  if (!renounce) {
+    console.log("NOTE: the deployer keeps Admin on this development network. " +
+      "A production deploy renounces it so only governance can change roles.");
+  }
   const outPath = path.join(__dirname, "..", "deployments.local.json");
   fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
   console.log("Deployed:", out);

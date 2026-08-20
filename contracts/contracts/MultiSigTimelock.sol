@@ -29,12 +29,23 @@ contract MultiSigTimelock {
     uint64 public delay;
 
     mapping(bytes32 => Operation) public operations;
-    mapping(bytes32 => mapping(address => bool)) public approved;
+    /// @dev Approvals are recorded per epoch. Cancelling bumps the epoch, so a
+    ///      cancelled action can be proposed again from a clean slate instead of
+    ///      being dead forever.
+    mapping(bytes32 => uint256) public epoch;
+    mapping(bytes32 => mapping(uint256 => mapping(address => bool))) public approvedAt;
+
+    uint64 public constant MIN_DELAY = 24 hours;
 
     event Queued(bytes32 indexed id, address indexed target, uint256 value, uint64 readyAt);
     event Approved(bytes32 indexed id, address indexed signer, uint8 approvals);
     event Executed(bytes32 indexed id);
     event Cancelled(bytes32 indexed id, address indexed by);
+    event SignerAdded(address indexed who);
+    event SignerRemoved(address indexed who);
+    event ThresholdChanged(uint8 threshold);
+    event DelayChanged(uint64 delay);
+    event GuardianChanged(address indexed who, bool enabled);
 
     error NotSigner();
     error NotGuardian();
@@ -48,6 +59,7 @@ contract MultiSigTimelock {
     constructor(address[] memory _signers, uint8 _threshold, uint64 _delay, address[] memory _guardians) {
         require(_signers.length > 0, "no signers");
         require(_threshold > 0 && _threshold <= _signers.length, "bad threshold");
+        require(_delay >= MIN_DELAY, "delay too short");
         for (uint256 i = 0; i < _signers.length; i++) {
             require(_signers[i] != address(0), "zero signer");
             require(!isSigner[_signers[i]], "duplicate signer");
@@ -84,7 +96,8 @@ contract MultiSigTimelock {
         op.data = data;
         op.readyAt = uint64(block.timestamp) + delay;
         op.approvals = 1;
-        approved[id][msg.sender] = true;
+        op.cancelled = false;
+        approvedAt[id][epoch[id]][msg.sender] = true;
         emit Queued(id, target, value, op.readyAt);
         emit Approved(id, msg.sender, 1);
     }
@@ -93,10 +106,14 @@ contract MultiSigTimelock {
         Operation storage op = operations[id];
         if (op.readyAt == 0) revert UnknownOperation();
         if (op.executed || op.cancelled) revert AlreadyFinalized();
-        if (approved[id][msg.sender]) revert AlreadyApproved();
-        approved[id][msg.sender] = true;
+        if (approvedAt[id][epoch[id]][msg.sender]) revert AlreadyApproved();
+        approvedAt[id][epoch[id]][msg.sender] = true;
         op.approvals += 1;
         emit Approved(id, msg.sender, op.approvals);
+    }
+
+    function approved(bytes32 id, address signer) external view returns (bool) {
+        return approvedAt[id][epoch[id]][signer];
     }
 
     function execute(bytes32 id) external onlySigner {
@@ -112,13 +129,67 @@ contract MultiSigTimelock {
     }
 
     /// @notice A guardian can stop a queued action but can never start one.
+    /// @dev Restricted to guardians. Letting any signer cancel would turn an
+    ///      M-of-N multisig into a 1-of-N veto, because one holdout could kill
+    ///      every action the majority proposed.
     function cancel(bytes32 id) external {
-        if (!isGuardian[msg.sender] && !isSigner[msg.sender]) revert NotGuardian();
+        if (!isGuardian[msg.sender]) revert NotGuardian();
         Operation storage op = operations[id];
         if (op.readyAt == 0) revert UnknownOperation();
         if (op.executed || op.cancelled) revert AlreadyFinalized();
-        op.cancelled = true;
+        // Bump the epoch and clear the slot so the same action can be proposed
+        // again from scratch rather than being permanently unusable.
+        epoch[id] += 1;
+        delete operations[id];
         emit Cancelled(id, msg.sender);
+    }
+
+    // ---- self-administration ----
+    // These are callable only by the timelock itself, so changing the signer set
+    // requires the same M-of-N approval and delay as any other action. Without
+    // them a lost or compromised key could never be rotated out.
+
+    modifier onlySelf() {
+        if (msg.sender != address(this)) revert NotSigner();
+        _;
+    }
+
+    function addSigner(address who) external onlySelf {
+        require(who != address(0) && !isSigner[who], "bad signer");
+        isSigner[who] = true;
+        signers.push(who);
+        emit SignerAdded(who);
+    }
+
+    function removeSigner(address who) external onlySelf {
+        require(isSigner[who], "not a signer");
+        require(signers.length - 1 >= threshold, "would drop below threshold");
+        isSigner[who] = false;
+        for (uint256 i = 0; i < signers.length; i++) {
+            if (signers[i] == who) {
+                signers[i] = signers[signers.length - 1];
+                signers.pop();
+                break;
+            }
+        }
+        emit SignerRemoved(who);
+    }
+
+    function setThreshold(uint8 newThreshold) external onlySelf {
+        require(newThreshold > 0 && newThreshold <= signers.length, "bad threshold");
+        threshold = newThreshold;
+        emit ThresholdChanged(newThreshold);
+    }
+
+    function setDelay(uint64 newDelay) external onlySelf {
+        require(newDelay >= MIN_DELAY, "delay too short");
+        delay = newDelay;
+        emit DelayChanged(newDelay);
+    }
+
+    function setGuardian(address who, bool enabled) external onlySelf {
+        isGuardian[who] = enabled;
+        emit GuardianChanged(who, enabled);
     }
 
     function signerCount() external view returns (uint256) {
