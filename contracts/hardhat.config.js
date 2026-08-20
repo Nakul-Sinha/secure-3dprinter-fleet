@@ -13,6 +13,11 @@ module.exports = {
     localhost: {
       url: "http://127.0.0.1:8545",
     },
+    // Permissioned consortium (tier A1). See infra/besu.
+    besu: {
+      url: process.env.BESU_RPC || "http://127.0.0.1:8545",
+      gasPrice: 0,
+    },
   },
   mocha: {
     timeout: 120000,

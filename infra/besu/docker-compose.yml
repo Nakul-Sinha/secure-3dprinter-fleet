@@ -1,0 +1,77 @@
+# Four-validator Hyperledger Besu QBFT network.
+#
+# Four is the minimum that tolerates one faulty validator: QBFT needs
+# 3f+1 nodes to survive f faults. Three nodes tolerate zero, which is why a
+# two-party "consortium" gives no Byzantine fault tolerance at all.
+#
+# The point of this file is that each validator is meant to run at a DIFFERENT
+# organization. Running all four yourself reproduces the topology but not the
+# trust: it is still one administrative domain, and the honest claim stays
+# tamper-evident rather than tamper-resistant.
+#
+# Bootstrap:
+#   1. Generate keys and the QBFT genesis (see README.md in this directory).
+#   2. docker compose up -d
+#   3. Point the backend at it:  APP_CHAIN_RPC=http://localhost:8545 APP_LEDGER=chain
+version: "3.8"
+
+x-besu: &besu
+  image: hyperledger/besu:24.12.2
+  restart: unless-stopped
+  volumes:
+    - ./genesis.json:/config/genesis.json:ro
+  command: &besu-cmd >
+    --genesis-file=/config/genesis.json
+    --data-path=/data
+    --node-private-key-file=/data/key
+    --rpc-http-enabled
+    --rpc-http-host=0.0.0.0
+    --rpc-http-api=ETH,NET,WEB3,QBFT,ADMIN
+    --rpc-http-cors-origins=all
+    --host-allowlist=*
+    --min-gas-price=0
+    --profile=ENTERPRISE
+
+services:
+  validator-fleet-owner:
+    <<: *besu
+    container_name: besu-fleet-owner
+    ports:
+      - "8545:8545"
+      - "30303:30303"
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - ./nodes/validator1:/data
+
+  validator-client-org:
+    <<: *besu
+    container_name: besu-client-org
+    ports:
+      - "8546:8545"
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - ./nodes/validator2:/data
+    depends_on:
+      - validator-fleet-owner
+
+  validator-print-farm:
+    <<: *besu
+    container_name: besu-print-farm
+    ports:
+      - "8547:8545"
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - ./nodes/validator3:/data
+    depends_on:
+      - validator-fleet-owner
+
+  validator-auditor:
+    <<: *besu
+    container_name: besu-auditor
+    ports:
+      - "8548:8545"
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - ./nodes/validator4:/data
+    depends_on:
+      - validator-fleet-owner
