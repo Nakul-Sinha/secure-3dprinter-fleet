@@ -41,6 +41,10 @@ class ChainBridge:
         self.acl = self.w3.eth.contract(address=dep["AccessControlHub"], abi=_abi("AccessControlHub"))
         self.printers = self.w3.eth.contract(address=dep["PrinterRegistry"], abi=_abi("PrinterRegistry"))
         self.jobs = self.w3.eth.contract(address=dep["JobRegistry"], abi=_abi("JobRegistry"))
+        self.anchors = (
+            self.w3.eth.contract(address=dep["AnchorRegistry"], abi=_abi("AnchorRegistry"))
+            if dep.get("AnchorRegistry") else None
+        )
         self.accounts = self.w3.eth.accounts
 
     # ---- helpers ----
@@ -84,6 +88,38 @@ class ChainBridge:
 
     def job_status(self, job_id: str) -> int:
         return self.jobs.functions.statusOf(self._b32(job_id)).call()
+
+    # ---- checkpoint anchoring ----
+    def operator_account(self) -> str:
+        """An account holding the Operator role.
+
+        Never grants Operator to the admin account: roles are discrete, so
+        making the admin an Operator would strip its Admin rights and break
+        every later role grant.
+        """
+        for a in self.accounts:
+            if self.role_of(a) == ROLE["Operator"]:
+                return a
+        admin = self.accounts[0]
+        if len(self.accounts) > 1:
+            candidate = self.accounts[1]
+            self.grant_role(candidate, "Operator", admin)
+            return candidate
+        raise RuntimeError("no account available to hold the Operator role")
+
+    def anchor(self, digest_hex: str, sender: str | None = None) -> str | None:
+        """Anchor an audit checkpoint digest. Returns the transaction hash."""
+        if self.anchors is None:
+            return None
+        who = sender or self.operator_account()
+        digest = bytes.fromhex(digest_hex[-64:])
+        receipt = self._tx(self.anchors.functions.anchor(digest), who)
+        return receipt["transactionHash"].hex()
+
+    def is_anchored(self, digest_hex: str) -> bool:
+        if self.anchors is None:
+            return False
+        return self.anchors.functions.isAnchored(bytes.fromhex(digest_hex[-64:])).call()
 
 
 _bridge: ChainBridge | None = None

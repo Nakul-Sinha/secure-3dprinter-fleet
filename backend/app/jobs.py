@@ -13,11 +13,11 @@ import secrets
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import drivers, materials, scheduler
+from . import drivers, materials, scheduler, sensors, simulate
 from . import verify as verifier
 from .auth import AccessDenied, require
 from .config import settings
-from .constants import JOB_TRANSITIONS, JobStatus, PrinterStatus, Role, Scenario, Tier, Verdict
+from .constants import JOB_TRANSITIONS, JobStatus, Plane, PrinterStatus, Role, Scenario, Tier, Verdict
 from .ledger import get_ledger
 from .models import Job, Printer, TelemetrySample, VerificationRecord, User, utcnow
 
@@ -170,6 +170,22 @@ def dispatch_job(session: Session, actor: User, job_id: str) -> Job:
     duration = int(job.meta.get("duration", 120))
     driver = drivers.get_driver(printer.driver_type if printer else "simulated")
     telemetry = driver.run(job.id, duration, job.scenario)
+
+    # The proof must be built from the independent plane. A firmware driver
+    # returns machine-plane data, which the printer controls and could fake, so
+    # in that case the independent power meter supplies the series instead.
+    if getattr(driver, "plane", Plane.MACHINE) != Plane.INDEPENDENT:
+        meter = sensors.get_meter("simulated", series=simulate.simulate(job.id, duration, job.scenario))
+        telemetry = sensors.sample_series(meter, duration,
+                                          [t["expected_phase"] for t in telemetry])
+
+    # Independent-plane gate: a job that claims completion while drawing only
+    # idle power did no physical work, regardless of what the firmware reported.
+    power_check = sensors.gross_false_completion(telemetry)
+    if power_check["suspicious"]:
+        get_ledger().append(session, actor.id, "PowerCheckFailed", job.id, power_check)
+        _fail(session, job, actor, power_check["reason"])
+        return job
     commitments = verifier.commit_all(job.id, telemetry)
     result = verifier.verify_job(job.id, telemetry, commitments, n=settings.sampling_n)
 

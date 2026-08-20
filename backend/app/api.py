@@ -293,6 +293,57 @@ def audit_events(action: str | None = None, target: str | None = None,
     ]
 
 
+@router.post("/audit/checkpoint")
+def create_checkpoint(user: User = Depends(current_user), session: Session = Depends(db)):
+    """Sign, timestamp, and anchor the current audit head (Operator or Admin)."""
+    from . import anchor as anchor_mod
+    from .auth import require
+
+    require(user, "audit.checkpoint")
+    cp = anchor_mod.create_checkpoint(session)
+    if cp is None:
+        raise HTTPException(status_code=400, detail="no audit events to checkpoint")
+    session.commit()
+    return anchor_mod.checkpoint_dict(cp)
+
+
+@router.get("/audit/checkpoint")
+def latest_checkpoint(user: User = Depends(current_user), session: Session = Depends(db)):
+    from . import anchor as anchor_mod
+    from .auth import require
+
+    require(user, "audit.read")
+    cp = anchor_mod.latest(session)
+    return anchor_mod.checkpoint_dict(cp) if cp else {"checkpoint": None}
+
+
+@router.get("/audit/public-key")
+def audit_public_key():
+    """The Ed25519 public key an external auditor needs to verify a bundle."""
+    from .keys import public_key_hex
+
+    return {"algorithm": "ed25519", "public_key": public_key_hex()}
+
+
+@router.get("/audit/export.pdf")
+def audit_export_pdf(target: str | None = None,
+                     user: User = Depends(current_user), session: Session = Depends(db)):
+    import io
+
+    from fastapi.responses import Response
+
+    from .auth import require
+    from .reports import audit_pdf
+
+    require(user, "audit.read")
+    events = audit.list_events(session, target=target, limit=5000)
+    check = audit.verify_chain(session)
+    buf = io.BytesIO()
+    audit_pdf(buf, events, check, target)
+    return Response(content=buf.getvalue(), media_type="application/pdf",
+                    headers={"Content-Disposition": "attachment; filename=audit.pdf"})
+
+
 @router.get("/audit/export.csv")
 def audit_export_csv(target: str | None = None,
                      user: User = Depends(current_user), session: Session = Depends(db)):

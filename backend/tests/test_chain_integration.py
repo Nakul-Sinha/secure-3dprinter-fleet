@@ -48,6 +48,18 @@ def test_onchain_lifecycle(bridge):
     assert bridge.job_status(job) == 4  # Verified
 
 
+def test_onchain_checkpoint_anchoring(bridge):
+    """A signed audit checkpoint digest is anchored where the server operator
+    does not control it, which is what closes the tail-truncation gap."""
+    import hashlib
+
+    digest = hashlib.sha256(b"checkpoint-integration").hexdigest()
+    assert bridge.is_anchored(digest) is False
+    tx = bridge.anchor(digest)
+    assert tx
+    assert bridge.is_anchored(digest) is True
+
+
 def test_onchain_rbac_rejects_unauthorized(bridge):
     admin, operator = bridge.accounts[0], bridge.accounts[1]
     bridge.grant_role(operator, "Operator", admin)  # operator, not client

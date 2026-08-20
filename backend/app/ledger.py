@@ -2,14 +2,15 @@
 
 The same event schema runs on a chain (consensus enforced) or on a local
 signed transparency log (evidenced). The MVP default is the log adapter: a
-hash-chained, HMAC-signed append-only event stream. Any edit to, or deletion
-from the middle of, the chain is detectable (it breaks a hash link).
+hash-chained, Ed25519-signed, append-only event stream. Any edit to, or
+deletion from the middle of, the chain is detectable because it breaks a hash
+link, and any forgery is detectable because the signature will not verify
+against the published public key.
 
-Honest limit: deletion of the most recent (tail) events is NOT detectable from
-the log alone, because the truncated chain remains internally consistent.
-Closing that gap requires an external anchor of the signed head (public-chain
-anchoring plus a qualified timestamp), which is Phase B. At tier A0 this is a
-tamper-EVIDENT log, not a tamper-resistant ledger.
+Tail truncation, deleting the most recent events, leaves an internally
+consistent chain. That is closed by signed checkpoints (see anchor.py): a
+checkpoint commits to the head at a point in time, so a log that has fewer
+events than the last checkpoint is provably truncated.
 """
 from __future__ import annotations
 
@@ -19,9 +20,9 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .config import settings
-from .crypto import audit_key, canonical_bytes, hmac_sign, hmac_verify, sha256_hex
-from .models import AuditEvent, now_iso
+from .crypto import canonical_bytes, sha256_hex
+from .keys import sign_audit, verify_audit
+from .models import AuditEvent, Checkpoint, now_iso
 
 
 @dataclass
@@ -57,7 +58,7 @@ class LedgerAdapter(ABC):
 
 
 class LogLedger(LedgerAdapter):
-    """Hash-chained, signed transparency log."""
+    """Hash-chained, Ed25519-signed transparency log."""
 
     def head(self, session: Session) -> str:
         row = session.execute(
@@ -71,23 +72,44 @@ class LogLedger(LedgerAdapter):
         session.add(ev)
         session.flush()  # assign seq
         ev.this_hash = _event_hash(ev.seq, actor, action, target, payload, prev, ev.ts)
-        ev.signature = hmac_sign(ev.this_hash.encode(), audit_key())
+        ev.signature = sign_audit(ev.this_hash.encode())
         session.flush()
         return ev
 
     def verify_chain(self, session: Session) -> ChainCheck:
         rows = list(session.execute(select(AuditEvent).order_by(AuditEvent.seq.asc())).scalars())
         prev = ""
+        by_seq: dict[int, AuditEvent] = {}
         for ev in rows:
             expect = _event_hash(ev.seq, ev.actor, ev.action, ev.target, ev.payload, prev, ev.ts)
             if ev.this_hash != expect:
                 return ChainCheck(False, len(rows), ev.seq, "hash mismatch (record altered)")
             if ev.prev_hash != prev:
                 return ChainCheck(False, len(rows), ev.seq, "broken chain link")
-            if not hmac_verify(ev.this_hash.encode(), ev.signature, audit_key()):
+            if not verify_audit(ev.this_hash.encode(), ev.signature):
                 return ChainCheck(False, len(rows), ev.seq, "bad signature")
             prev = ev.this_hash
+            by_seq[ev.seq] = ev
+
+        truncation = self._check_truncation(session, rows, by_seq)
+        if truncation is not None:
+            return truncation
         return ChainCheck(True, len(rows))
+
+    def _check_truncation(self, session: Session, rows: list[AuditEvent],
+                          by_seq: dict[int, AuditEvent]) -> ChainCheck | None:
+        cp = session.execute(
+            select(Checkpoint).order_by(Checkpoint.seq.desc()).limit(1)
+        ).scalar_one_or_none()
+        if cp is None:
+            return None
+        if len(rows) < cp.count or cp.seq not in by_seq:
+            return ChainCheck(False, len(rows), cp.seq,
+                              "truncated: the log is shorter than the last signed checkpoint")
+        if by_seq[cp.seq].this_hash != cp.head_hash:
+            return ChainCheck(False, len(rows), cp.seq,
+                              "history rewritten: head at the checkpoint does not match")
+        return None
 
 
 _ledger: LedgerAdapter | None = None

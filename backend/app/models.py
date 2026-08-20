@@ -121,6 +121,29 @@ class AuditEvent(Base):
     ts: Mapped[str] = mapped_column(String, default=now_iso)  # ISO string: stable across DB round-trips
 
 
+class Checkpoint(Base):
+    """A signed, timestamped commitment to the audit log head.
+
+    Checkpoints are what make tail truncation detectable: deleting the newest
+    events leaves an internally consistent chain, but it no longer matches the
+    last signed checkpoint.
+    """
+
+    __tablename__ = "checkpoints"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    seq: Mapped[int] = mapped_column(Integer, index=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    head_hash: Mapped[str] = mapped_column(String, default="")
+    tree_root: Mapped[str] = mapped_column(String, default="")
+    signature: Mapped[str] = mapped_column(String, default="")
+    public_key: Mapped[str] = mapped_column(String, default="")
+    tsa_authority: Mapped[str] = mapped_column(String, default="")
+    tsa_token: Mapped[str] = mapped_column(String, default="")
+    tsa_time: Mapped[str] = mapped_column(String, default="")
+    anchor_tx: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=now_iso)
+
+
 class Blob(Base):
     __tablename__ = "blobs"
     cid: Mapped[str] = mapped_column(String, primary_key=True)
