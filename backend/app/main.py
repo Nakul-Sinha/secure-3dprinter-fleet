@@ -31,6 +31,10 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Secure 3D-Printer Fleet API", version=__version__, lifespan=lifespan)
 
+from .middleware import guard_middleware  # noqa: E402
+
+app.middleware("http")(guard_middleware)
+
 
 @app.exception_handler(AccessDenied)
 def _access_denied(_: Request, exc: AccessDenied):

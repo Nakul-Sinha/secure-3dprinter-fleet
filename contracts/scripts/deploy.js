@@ -18,11 +18,15 @@ async function main() {
   const jobRegistry = await (await ethers.getContractFactory("JobRegistry")).deploy(aclAddr);
   await jobRegistry.waitForDeployment();
 
+  const anchorRegistry = await (await ethers.getContractFactory("AnchorRegistry")).deploy(aclAddr);
+  await anchorRegistry.waitForDeployment();
+
   const out = {
     network: "localhost",
     AccessControlHub: aclAddr,
     PrinterRegistry: await printerRegistry.getAddress(),
     JobRegistry: await jobRegistry.getAddress(),
+    AnchorRegistry: await anchorRegistry.getAddress(),
     deployer: deployer.address,
   };
   const outPath = path.join(__dirname, "..", "deployments.local.json");

@@ -95,6 +95,11 @@ def simulate(job_id: str, duration: int, scenario: str, seed: int = 0) -> list[d
                 "power": round(power, 2),
                 "thermal": round(thermal, 2),
                 "flow": round(flow, 2),
+                "modalities": ["power", "thermal", "flow"],
+                # Modelled data, not a physical observation. Recorded so no
+                # verdict can be mistaken for evidence from a real witness.
+                "witness": "simulated",
+                "physical_witness": False,
                 "plane": "independent",
             }
         )

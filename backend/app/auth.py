@@ -25,6 +25,7 @@ PERMISSIONS: dict[str, set[str]] = {
     "job.dispatch": {Role.OPERATOR},
     "job.cancel": {Role.CLIENT, Role.OPERATOR, Role.ADMIN},
     "audit.read": {Role.AUDITOR, Role.ADMIN, Role.OPERATOR, Role.CLIENT},
+    "audit.checkpoint": {Role.OPERATOR, Role.ADMIN},
     "fleet.read": {Role.AUDITOR, Role.ADMIN, Role.OPERATOR, Role.CLIENT},
 }
 

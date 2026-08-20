@@ -43,6 +43,12 @@ class Printer(Base):
     health: Mapped[str] = mapped_column(String, default="ok")
     device_pubkey: Mapped[str | None] = mapped_column(String, nullable=True)
     current_job: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Attaching real hardware is configuration: point these at the firmware API
+    # and the energy meter, and the same code paths drive a physical printer.
+    driver_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    driver_api_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    meter_kind: Mapped[str] = mapped_column(String, default="simulated")
+    meter_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class MaterialLot(Base):
@@ -101,11 +107,12 @@ class TelemetrySample(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[str] = mapped_column(String, index=True)
     bucket: Mapped[int] = mapped_column(Integer)
-    power: Mapped[float] = mapped_column(Float, default=0.0)
-    thermal: Mapped[float] = mapped_column(Float, default=0.0)
-    flow: Mapped[float] = mapped_column(Float, default=0.0)
+    power: Mapped[float | None] = mapped_column(Float, nullable=True)
+    thermal: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flow: Mapped[float | None] = mapped_column(Float, nullable=True)
     expected_phase: Mapped[str] = mapped_column(String, default="")
     plane: Mapped[str] = mapped_column(String, default="independent")
+    witness: Mapped[str] = mapped_column(String, default="simulated")
 
 
 class AuditEvent(Base):
@@ -119,6 +126,30 @@ class AuditEvent(Base):
     this_hash: Mapped[str] = mapped_column(String, default="")
     signature: Mapped[str] = mapped_column(String, default="")
     ts: Mapped[str] = mapped_column(String, default=now_iso)  # ISO string: stable across DB round-trips
+
+
+class Checkpoint(Base):
+    """A signed, timestamped commitment to the audit log head.
+
+    Checkpoints are what make tail truncation detectable: deleting the newest
+    events leaves an internally consistent chain, but it no longer matches the
+    last signed checkpoint.
+    """
+
+    __tablename__ = "checkpoints"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    seq: Mapped[int] = mapped_column(Integer, index=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    head_hash: Mapped[str] = mapped_column(String, default="")
+    tree_root: Mapped[str] = mapped_column(String, default="")
+    signature: Mapped[str] = mapped_column(String, default="")
+    public_key: Mapped[str] = mapped_column(String, default="")
+    tsa_authority: Mapped[str] = mapped_column(String, default="")
+    tsa_token: Mapped[str] = mapped_column(String, default="")
+    tsa_time: Mapped[str] = mapped_column(String, default="")
+    anchor_tx: Mapped[str | None] = mapped_column(String, nullable=True)
+    anchor_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String, default=now_iso)
 
 
 class Blob(Base):

@@ -74,13 +74,24 @@ def merkle_root(hashes: list[str]) -> str:
 
 
 def in_envelope(reading: dict, phase: str) -> bool:
+    """Check only the modalities the witness actually observed.
+
+    A power clamp reports watts and nothing else. Requiring thermal and flow
+    from it would fail every real job, and synthesising those values would put
+    fabricated data into the proof. Unobserved modalities are None and are
+    skipped; a reading that observes nothing fails closed.
+    """
     env = settings.envelopes[phase]
+    checked = 0
     for key in ("power", "thermal", "flow"):
+        val = reading.get(key)
+        if val is None:
+            continue
         lo, hi = env[key]
-        val = reading[key]
         if val < lo - _TOL or val > hi + _TOL:
             return False
-    return True
+        checked += 1
+    return checked > 0
 
 
 def p_evade(phi: float, n: int, q: float = 1.0) -> float:

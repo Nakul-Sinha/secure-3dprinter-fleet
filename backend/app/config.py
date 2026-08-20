@@ -45,6 +45,14 @@ class Settings:
     sampling_q: float = field(default_factory=lambda: float(_env("APP_SAMPLING_Q", "0.9")))
     bucket_seconds: int = 1
 
+    # Automatic checkpointing. Every Nth audit event signs and timestamps the
+    # head, so truncation is detectable back to at most N events ago rather than
+    # relying on somebody remembering to call the endpoint. 0 disables it.
+    checkpoint_every: int = field(default_factory=lambda: int(_env("APP_CHECKPOINT_EVERY", "25")))
+    anchor_checkpoints: bool = field(
+        default_factory=lambda: _env("APP_ANCHOR_CHECKPOINTS", "0") not in ("0", "false", "")
+    )
+
     # Envelopes for phase detection, shared verbatim between simulator and
     # verifier. Freezing one table avoids the classic drift bug.
     # Each phase maps modality -> (low, high).

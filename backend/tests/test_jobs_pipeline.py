@@ -59,6 +59,18 @@ def test_material_reserved_and_consumed(session, actors):
     assert after == before - 25.0
 
 
+def test_independent_power_gate_fires_on_fake_completion(session, actors):
+    from app import audit
+
+    _seed(session)
+    job = jobs.run_pipeline(session, actors["client"], actors["operator"],
+                            design=b"ghost", design_name="ghost.3mf",
+                            material_lot_id="mat-pla-001", scenario=Scenario.LAZY_FAKE, duration=90)
+    assert job.status == JobStatus.FAILED
+    actions = [e.action for e in audit.list_events(session, target=job.id)]
+    assert "PowerCheckFailed" in actions  # independent plane caught it
+
+
 def test_sabotage_pipeline_fails_closed(session, actors):
     _seed(session)
     job = jobs.run_pipeline(session, actors["client"], actors["operator"],
