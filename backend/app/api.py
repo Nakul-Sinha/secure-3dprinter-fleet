@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from . import audit, jobs, materials, printers, users
@@ -89,6 +89,13 @@ class PrinterBody(BaseModel):
     materials: list[str] = ["PLA"]
     tolerance_class: str = "standard"
     location: str = ""
+    # Hardware attachment is configuration, not code: set driver_type plus the
+    # firmware URL, and meter_kind plus the meter URL, to drive real devices.
+    driver_type: str = "simulated"
+    driver_url: str | None = None
+    driver_api_key: str | None = None
+    meter_kind: str = "simulated"
+    meter_url: str | None = None
 
 
 class AvailabilityBody(BaseModel):
@@ -101,9 +108,13 @@ def add_printer(body: PrinterBody, user: User = Depends(current_user), session: 
 
     require(user, "printer.add")
     p = printers.add_printer(session, id=body.id, model=body.model, materials=body.materials,
-                             tolerance_class=body.tolerance_class, location=body.location)
+                             tolerance_class=body.tolerance_class, location=body.location,
+                             driver_type=body.driver_type, driver_url=body.driver_url,
+                             driver_api_key=body.driver_api_key,
+                             meter_kind=body.meter_kind, meter_url=body.meter_url)
     session.commit()
-    return {"id": p.id, "status": p.status, "materials": p.materials}
+    return {"id": p.id, "status": p.status, "materials": p.materials,
+            "driver_type": p.driver_type, "meter_kind": p.meter_kind}
 
 
 @router.post("/printers/{printer_id}/availability")
@@ -179,7 +190,9 @@ class JobBody(BaseModel):
     priority: int = 5
     tolerance_class: str = "standard"
     scenario: str = Scenario.LEGITIMATE
-    duration: int = 120
+    # Bounded: a degenerate duration produces an all-idle timeline that would
+    # wrongly trip the power gate, and an unbounded one pins a worker.
+    duration: int = Field(120, ge=10, le=3600)
 
 
 def _job_view(session: Session, job: Job) -> dict:
@@ -200,8 +213,11 @@ def _job_view(session: Session, job: Job) -> dict:
         "status": job.status, "assurance_tier": job.assurance_tier, "verdict": job.verdict,
         "scenario": job.scenario, "object_ref": job.object_ref, "file_hash": job.file_hash,
         "verification": vr.detail if vr else None,
+        "witness": (vr.detail or {}).get("witness") if vr else None,
+        "physical_witness": (vr.detail or {}).get("physical_witness") if vr else None,
         "telemetry": [{"bucket": s.bucket, "power": s.power, "thermal": s.thermal,
-                       "flow": s.flow, "expected_phase": s.expected_phase} for s in samples],
+                       "flow": s.flow, "expected_phase": s.expected_phase,
+                       "plane": s.plane, "witness": s.witness} for s in samples],
     }
 
 
@@ -369,8 +385,12 @@ def audit_verify(user: User = Depends(current_user), session: Session = Depends(
     from .auth import require
 
     require(user, "audit.read")
+    from . import anchor as anchor_mod
+
     c = audit.verify_chain(session)
-    return {"ok": c.ok, "count": c.count, "first_bad_seq": c.first_bad_seq, "reason": c.reason}
+    return {"ok": c.ok, "count": c.count, "first_bad_seq": c.first_bad_seq, "reason": c.reason,
+            "attested": c.attested, "checkpoint_seq": c.checkpoint_seq,
+            "chain_anchor": anchor_mod.verify_against_chain(session)}
 
 
 @router.get("/audit/bundle")

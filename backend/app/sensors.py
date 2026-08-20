@@ -1,13 +1,17 @@
 """Independent-observation plane: external sensors the printer cannot spoof.
 
-The anchor signal is mains power. A smart plug or clamp meter sits on the supply
-and reports real watts, so it sees motor and heater work directly. The printer
-controller has no path to influence that reading, which is why this plane, and
-not firmware telemetry, is what the verification proof is built from.
+The anchor signal is mains power. A real smart plug or clamp meter sits on the
+supply and reports actual watts, so it observes motor and heater work directly.
+A printer controller has no electrical path to influence such a reading, which
+is why this plane, and not firmware telemetry, is what a proof should be built
+from.
 
-Phase B ships the adapter interface plus two implementations: a simulated meter
-for offline work, and an HTTP meter for a Shelly-class device. Attaching real
-hardware is a wiring job; no code change is needed.
+Honest scope for this build: two implementations ship, and only one of them is a
+real witness. `ShellyPowerMeter` talks to a physical device over HTTP.
+`SimulatedPowerMeter` replays modelled data and is the default, so unless a
+device is configured on the printer the "independent" plane is simulated. Every
+sample therefore carries a `witness` provenance string, which is persisted and
+surfaced, so nobody can mistake a modelled series for a physical observation.
 """
 from __future__ import annotations
 
@@ -20,6 +24,12 @@ from .constants import Phase, Plane
 
 class PowerMeter(ABC):
     name: str = "abstract"
+    physical: bool = False
+
+    @property
+    def provenance(self) -> str:
+        """Where the readings came from. Recorded with every sample."""
+        return self.name
 
     @abstractmethod
     def read_watts(self) -> float:
@@ -32,9 +42,10 @@ class PowerMeter(ABC):
 
 
 class SimulatedPowerMeter(PowerMeter):
-    """Replays a telemetry series produced by the simulator."""
+    """Replays a telemetry series produced by the simulator. Not a witness."""
 
     name = "simulated"
+    physical = False
 
     def __init__(self, series: list[dict] | None = None):
         self.series = series or []
@@ -56,12 +67,17 @@ class ShellyPowerMeter(PowerMeter):
     """
 
     name = "shelly"
+    physical = True
 
     def __init__(self, base_url: str, channel: int = 0, http=None, timeout: float = 3.0):
         self.base_url = base_url.rstrip("/")
         self.channel = channel
         self.timeout = timeout
         self._http = http
+
+    @property
+    def provenance(self) -> str:
+        return f"shelly:{self.base_url}"
 
     def read_watts(self) -> float:
         path = f"/rpc/Switch.GetStatus?id={self.channel}"
@@ -77,7 +93,12 @@ class ShellyPowerMeter(PowerMeter):
 
 
 def sample_series(meter: PowerMeter, duration: int, expected_phases: list[str] | None = None) -> list[dict]:
-    """Collect an independent-plane telemetry series from a power meter."""
+    """Collect an independent-plane telemetry series from a power meter.
+
+    A power meter observes watts only. Thermal and flow are left as None rather
+    than zero-filled, so the verifier checks what was actually observed instead
+    of judging a reading against modalities nobody measured.
+    """
     out = []
     for bucket in range(duration):
         watts = meter.read_watts()
@@ -85,10 +106,13 @@ def sample_series(meter: PowerMeter, duration: int, expected_phases: list[str] |
         out.append({
             "bucket": bucket,
             "expected_phase": phase,
-            "actual_phase": phase,
+            "actual_phase": None,
             "power": round(watts, 2),
-            "thermal": 0.0,
-            "flow": 0.0,
+            "thermal": None,
+            "flow": None,
+            "modalities": ["power"],
+            "witness": meter.provenance,
+            "physical_witness": meter.physical,
             "plane": Plane.INDEPENDENT,
         })
     return out

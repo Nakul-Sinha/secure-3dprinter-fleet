@@ -74,8 +74,74 @@ def test_driver_registry_and_fallback():
     assert isinstance(get_driver("moonraker", base_url="http://x"), PrinterDriver)
 
 
-def test_simulated_driver_is_independent_plane():
+def test_simulated_driver_is_labelled_as_a_simulated_witness():
+    """The simulator stands in for the independent plane, but its output must
+    declare that it is modelled data so no verdict reads as physical evidence."""
+    tele = SimulatedDriver().run("j", 5, "legitimate")
     assert SimulatedDriver().plane == Plane.INDEPENDENT
+    assert all(t["witness"] == "simulated" for t in tele)
+    assert all(t["physical_witness"] is False for t in tele)
+
+
+def test_real_driver_job_verifies_end_to_end(session, actors):
+    """Regression: a power meter reports watts only. If the verifier demanded
+    thermal and flow from it, every real-printer job would fail."""
+    from app import jobs, materials, printers
+    from app.constants import JobStatus
+
+    materials.register_lot(session, id="mat-pla-001", type="PLA", stock_qty=1000)
+    printers.add_printer(session, id="printer-real", model="Voron", materials=["PLA"],
+                         tolerance_class="fine", driver_type="moonraker",
+                         driver_url="http://printer.local")
+    session.flush()
+
+    import app.drivers as drv
+
+    original = drv.MoonrakerDriver.__init__
+
+    def patched(self, base_url, **kw):
+        original(self, base_url, http=moonraker_http(), **kw)
+
+    drv.MoonrakerDriver.__init__ = patched
+    try:
+        job = jobs.run_pipeline(session, actors["client"], actors["operator"],
+                                design=b"real", design_name="real.3mf",
+                                material_lot_id="mat-pla-001", duration=60)
+    finally:
+        drv.MoonrakerDriver.__init__ = original
+
+    assert job.status == JobStatus.VERIFIED_A0
+
+
+def test_power_only_series_passes_envelope_check():
+    from app.simulate import expected_timeline
+    from app.verify import in_envelope
+
+    duration = 60
+    phases = expected_timeline(duration)
+    m = SimulatedPowerMeter(simulate("j", duration, "legitimate"))
+    series = sample_series(m, duration, phases)
+    # thermal and flow are unobserved, so they must be skipped rather than
+    # judged as zero and failed
+    assert series[0]["thermal"] is None and series[0]["flow"] is None
+    assert all(in_envelope(s, s["expected_phase"]) for s in series)
+
+
+def test_reading_with_no_observed_modality_fails_closed():
+    from app.verify import in_envelope
+
+    assert in_envelope({"power": None, "thermal": None, "flow": None}, "printing") is False
+
+
+def test_series_records_witness_provenance():
+    physical = ShellyPowerMeter("http://plug.local", http=lambda m, u: {"apower": 320.0})
+    series = sample_series(physical, 3, ["printing"] * 3)
+    assert series[0]["witness"] == "shelly:http://plug.local"
+    assert series[0]["physical_witness"] is True
+
+    modelled = sample_series(SimulatedPowerMeter(simulate("j", 3, "legitimate")), 3)
+    assert modelled[0]["witness"] == "simulated"
+    assert modelled[0]["physical_witness"] is False
 
 
 # ---- sensors ----

@@ -49,6 +49,33 @@ def test_different_idempotency_keys_create_distinct_jobs(client):
     assert a.json()["id"] != b.json()["id"]
 
 
+def test_unauthenticated_post_is_never_replayed(client):
+    """Regression: login has no Authorization header, so an IP-keyed cache would
+    hand a second user the first user's token."""
+    admin = login(client, "admin")
+    client.post("/api/demo/seed", headers=_auth(admin))
+    headers = {"Idempotency-Key": "shared-key"}
+    a = client.post("/api/auth/login", json={"user_id": "op-1"}, headers=headers)
+    b = client.post("/api/auth/login", json={"user_id": "client-acme"}, headers=headers)
+    assert a.json()["user_id"] == "op-1"
+    assert b.json()["user_id"] == "client-acme"  # not op-1
+    assert b.json()["role"] == "Client"
+    assert b.headers.get("Idempotent-Replay") is None
+
+
+def test_idempotency_is_scoped_per_user(client):
+    admin = login(client, "admin")
+    client.post("/api/demo/seed", headers=_auth(admin))
+    client.post("/api/users", headers=_auth(admin), json={"id": "client-two", "role": "Client"})
+    body = {"design_name": "p.3mf", "material_lot_id": "mat-pla-001"}
+    one = client.post("/api/jobs", headers={**_auth(login(client, "client-acme")),
+                                            "Idempotency-Key": "same"}, json=body)
+    two = client.post("/api/jobs", headers={**_auth(login(client, "client-two")),
+                                            "Idempotency-Key": "same"}, json=body)
+    assert one.json()["id"] != two.json()["id"]
+    assert two.json()["client_id"] == "client-two"
+
+
 def test_rate_limit_returns_429(client, monkeypatch):
     import app.middleware as mw
 

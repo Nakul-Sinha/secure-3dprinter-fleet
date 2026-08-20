@@ -10,11 +10,14 @@ from .models import Job, MaterialLot, Printer
 
 def add_printer(session: Session, *, id: str, model: str = "", driver_type: str = "simulated",
                 materials: list[str] | None = None, tolerance_class: str = "standard",
-                location: str = "", build: tuple[int, int, int] = (220, 220, 250)) -> Printer:
+                location: str = "", build: tuple[int, int, int] = (220, 220, 250),
+                driver_url: str | None = None, driver_api_key: str | None = None,
+                meter_kind: str = "simulated", meter_url: str | None = None) -> Printer:
     p = Printer(id=id, model=model, driver_type=driver_type, materials=materials or ["PLA"],
                 tolerance_class=tolerance_class, location=location,
                 build_x=build[0], build_y=build[1], build_z=build[2],
-                status=PrinterStatus.IDLE)
+                status=PrinterStatus.IDLE, driver_url=driver_url, driver_api_key=driver_api_key,
+                meter_kind=meter_kind, meter_url=meter_url)
     session.merge(p)
     session.flush()
     return session.get(Printer, id)

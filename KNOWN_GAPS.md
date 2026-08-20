@@ -8,23 +8,25 @@ to a later phase in [Phases.md](Phases.md).
 
 | Area | What now exists |
 | --- | --- |
-| External audit verification | Audit events, checkpoints, and export bundles are signed with **Ed25519**. Verification needs only the public key (`GET /api/audit/public-key`), so an external auditor can check a bundle without holding any secret that would let them forge one. |
-| Tail truncation of the audit log | **Signed checkpoints** commit to the head hash, event count, and a Merkle root. `verify_chain` compares the log against the latest checkpoint, so deleting the newest events is now detected. |
-| External anchoring | `AnchorRegistry.sol` anchors a checkpoint digest on-chain, putting the commitment somewhere the server operator does not control. Proven end to end in the CI integration job. |
-| Trusted timestamping | Pluggable timestamp authority. `LocalTSA` is the offline default; `Rfc3161TSA` is the production client. |
-| Real printer drivers | `MoonrakerDriver` and `OctoPrintDriver` speak the real firmware HTTP APIs, tested against injected fake transports. Attaching a printer is a configuration change, not a code change. |
-| Independent observation plane | `sensors.py` provides the power-meter adapter (`ShellyPowerMeter` for real hardware, simulated for offline) and the gross-false-completion check. The job pipeline now builds its proof from the independent plane and fails a job whose power never rises above idle. |
-| PDF export, pagination, rate limiting, idempotency keys | Implemented and tested. |
+| External audit verification | Audit events, checkpoints, and export bundles are signed with **Ed25519**. `verify_bundle` requires the caller to supply the public key it trusts (pin it once from `GET /api/audit/public-key`), so a bundle forged with an attacker's own key is rejected rather than verifying against itself. |
+| Tail truncation of the audit log | **Signed checkpoints** commit to the head hash, event count, and Merkle root, and the signature covers the timestamp so the claimed time cannot be changed. `verify_chain` compares the log against the latest checkpoint. Checkpoints are created automatically every N events, so detection does not depend on somebody remembering to trigger one. |
+| External anchoring | `AnchorRegistry.sol` anchors a checkpoint digest on-chain, and `verify_against_chain` cross-checks the local checkpoint against it. This is the only defense if an attacker with database access erases the local attestations. Proven end to end in CI with a real checkpoint digest. |
+| Trusted timestamping | Pluggable authority with a `verify` method. `LocalTSA` is the offline default; `Rfc3161TSA` is the production client. |
+| Real printer drivers | `MoonrakerDriver` and `OctoPrintDriver` speak the real firmware HTTP APIs, tested against injected fake transports and exercised through the full job pipeline. |
+| Independent observation plane | `sensors.py` provides the power-meter adapters and the gross-false-completion gate, wired into the pipeline. Expected phases come from the authorized plan, never from the machine, so the controller cannot supply its own yardstick. |
+| Hardware attachment as configuration | `Printer` carries `driver_type`, `driver_url`, `driver_api_key`, `meter_kind`, and `meter_url`. Pointing these at a real printer and a real meter drives physical hardware through the same code paths, with no code change. |
+| PDF export, pagination, rate limiting, idempotency keys | Implemented. Idempotent replay is refused for unauthenticated requests, so a shared key behind one NAT cannot return another user's login token. |
 
 ## Still open
 
 | Area | Status | Deferred to |
 | --- | --- | --- |
-| Qualified (eIDAS) timestamps | The interface and an RFC-3161 client exist, but the default authority is local, so no legal time presumption is claimed. Pointing `APP_TSA_URL` at a qualified authority upgrades this. | Configuration, then Phase C |
-| Real sensor hardware | The adapters are written and tested; no physical meter or printer is attached in this repository. | Phase B deployment |
+| The witness is simulated by default | This is the most important caveat in the build. Unless a printer is configured with a real `meter_url`, the independent plane replays modelled data. Every sample and every verdict therefore records a `witness` provenance string and a `physical_witness` flag, and a verdict from a simulated witness carries a note saying it is evidence the protocol ran, not evidence of physical work. | Phase B deployment with hardware |
+| Truncation detection granularity | Detected back to the last signed checkpoint. Events after it can still be removed, so the exposure window is the checkpoint interval (default 25 events). | Tune the interval, or Phase C |
+| Qualified (eIDAS) timestamps | The interface and an RFC-3161 client exist, but the default authority is local and self-signed, so no legal time presumption is claimed. Pointing `APP_TSA_URL` at a qualified authority upgrades this. | Configuration |
 | Multi-organization ledger | The chain path is real and CI-proven, but runs single-org. Tamper-resistance across parties needs validators at independent organizations. | Phase C |
 | Payment settlement and bonds | `SettlementEscrow` is designed but not built. | Phase C |
-| Independent witness ownership | The independent plane exists in software, but at A2 the witness must be owned and sealed by a party other than the operator. | Phase D |
+| Independent witness ownership | Even with a real meter, at A2 the witness must be owned and sealed by a party other than the operator. Nothing in software can establish that. | Phase D |
 | Physical part ratification (CT/PUF) | Out of scope until A3; internal-correctness proof and payment gating depend on it. | Phase D |
 | Confidential enclave quorum | Not built. | Phase D |
 

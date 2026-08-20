@@ -32,15 +32,29 @@ class TimestampAuthority(ABC):
     def stamp(self, digest_hex: str) -> dict:
         """Return {authority, token, time, qualified}."""
 
+    @abstractmethod
+    def verify(self, digest_hex: str, stamp: dict, public_key: str | None = None) -> bool:
+        """Check that `stamp` really attests `digest_hex`."""
+
 
 class LocalTSA(TimestampAuthority):
     name = "local-dev-tsa"
     qualified = False
 
+    @staticmethod
+    def _payload(authority: str, digest_hex: str, when: str) -> bytes:
+        return f"{authority}|{digest_hex}|{when}".encode()
+
     def stamp(self, digest_hex: str) -> dict:
         now = dt.datetime.now(dt.timezone.utc).isoformat()
-        token = sign_audit(f"{self.name}|{digest_hex}|{now}".encode())
+        token = sign_audit(self._payload(self.name, digest_hex, now))
         return {"authority": self.name, "token": token, "time": now, "qualified": False}
+
+    def verify(self, digest_hex: str, stamp: dict, public_key: str | None = None) -> bool:
+        from .keys import verify_audit
+
+        payload = self._payload(stamp.get("authority", ""), digest_hex, stamp.get("time", ""))
+        return verify_audit(payload, stamp.get("token", ""), public_key)
 
 
 class Rfc3161TSA(TimestampAuthority):
@@ -65,6 +79,18 @@ class Rfc3161TSA(TimestampAuthority):
             "time": rfc3161ng.get_timestamp(token).isoformat(),
             "qualified": True,
         }
+
+    def verify(self, digest_hex: str, stamp: dict, public_key: str | None = None) -> bool:
+        import base64
+
+        import rfc3161ng
+
+        try:
+            token = base64.b64decode(stamp.get("token", ""))
+            stamper = rfc3161ng.RemoteTimestamper(self.url, hashname="sha256")
+            return bool(stamper.check(token, digest=bytes.fromhex(digest_hex)))
+        except Exception:
+            return False
 
 
 _authority: TimestampAuthority | None = None

@@ -30,6 +30,19 @@ def _new_id() -> str:
     return "job-" + secrets.token_hex(8)
 
 
+def _meter_for(printer, job: Job, duration: int):
+    """Build the independent-plane meter for a printer.
+
+    A printer configured with meter_kind="shelly" and a meter_url reads a real
+    device. Otherwise the meter replays modelled data and is labelled as such.
+    """
+    kind = getattr(printer, "meter_kind", "simulated") or "simulated"
+    url = getattr(printer, "meter_url", None)
+    if kind != "simulated" and url:
+        return sensors.get_meter(kind, base_url=url)
+    return sensors.get_meter("simulated", series=simulate.simulate(job.id, duration, job.scenario))
+
+
 def get_job(session: Session, job_id: str) -> Job:
     job = session.get(Job, job_id)
     if job is None:
@@ -168,32 +181,59 @@ def dispatch_job(session: Session, actor: User, job_id: str) -> Job:
     # 2) Run the print (simulated) and verify via commit-then-beacon.
     _transition(session, job, JobStatus.PRINTING, actor.id)
     duration = int(job.meta.get("duration", 120))
-    driver = drivers.get_driver(printer.driver_type if printer else "simulated")
+    driver = drivers.get_driver(
+        printer.driver_type if printer else "simulated",
+        base_url=(printer.driver_url or "http://127.0.0.1") if printer else "http://127.0.0.1",
+        **({"api_key": printer.driver_api_key or ""} if printer and printer.driver_type == "octoprint" else {}),
+    )
     telemetry = driver.run(job.id, duration, job.scenario)
+
+    # Expected phases come from the AUTHORIZED plan, never from the machine.
+    # If the controller supplied the yardstick it would be grading its own work.
+    expected_phases = simulate.expected_timeline(duration)
 
     # The proof must be built from the independent plane. A firmware driver
     # returns machine-plane data, which the printer controls and could fake, so
-    # in that case the independent power meter supplies the series instead.
+    # in that case the power meter supplies the series instead.
     if getattr(driver, "plane", Plane.MACHINE) != Plane.INDEPENDENT:
-        meter = sensors.get_meter("simulated", series=simulate.simulate(job.id, duration, job.scenario))
-        telemetry = sensors.sample_series(meter, duration,
-                                          [t["expected_phase"] for t in telemetry])
+        meter = _meter_for(printer, job, duration)
+        telemetry = sensors.sample_series(meter, duration, expected_phases)
+    else:
+        for t, phase in zip(telemetry, expected_phases):
+            t["expected_phase"] = phase
+
+    witness = telemetry[0].get("witness", "simulated") if telemetry else "simulated"
+    physical_witness = bool(telemetry[0].get("physical_witness")) if telemetry else False
 
     # Independent-plane gate: a job that claims completion while drawing only
     # idle power did no physical work, regardless of what the firmware reported.
     power_check = sensors.gross_false_completion(telemetry)
+    power_check["witness"] = witness
+    power_check["physical_witness"] = physical_witness
     if power_check["suspicious"]:
         get_ledger().append(session, actor.id, "PowerCheckFailed", job.id, power_check)
         _fail(session, job, actor, power_check["reason"])
         return job
+    get_ledger().append(session, actor.id, "PowerCheckPassed", job.id, power_check)
     commitments = verifier.commit_all(job.id, telemetry)
     result = verifier.verify_job(job.id, telemetry, commitments, n=settings.sampling_n)
 
     # persist the drawn telemetry samples for the job-detail view
+    result["witness"] = witness
+    result["physical_witness"] = physical_witness
+    result["power_check"] = power_check
+    if not physical_witness:
+        result["witness_note"] = (
+            "The independent plane was a simulated witness, so this verdict is "
+            "evidence that the protocol ran, not evidence of physical work. "
+            "A physical guarantee requires a real meter enrolled by a party "
+            "other than the operator."
+        )
     for i in result["sampled"]:
         t = telemetry[i]
-        session.add(TelemetrySample(job_id=job.id, bucket=i, power=t["power"], thermal=t["thermal"],
-                                    flow=t["flow"], expected_phase=t["expected_phase"], plane=t["plane"]))
+        session.add(TelemetrySample(job_id=job.id, bucket=i, power=t.get("power"), thermal=t.get("thermal"),
+                                    flow=t.get("flow"), expected_phase=t["expected_phase"],
+                                    plane=t["plane"], witness=t.get("witness", "simulated")))
     session.add(VerificationRecord(job_id=job.id, schedule_commit=result["merkle_root"],
                                    drawn_set=result["sampled"], verdict=result["verdict"], tier=Tier.A0,
                                    p_evade=result["p_evade"], detail=result))

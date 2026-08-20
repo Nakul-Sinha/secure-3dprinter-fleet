@@ -49,15 +49,34 @@ def test_onchain_lifecycle(bridge):
 
 
 def test_onchain_checkpoint_anchoring(bridge):
-    """A signed audit checkpoint digest is anchored where the server operator
-    does not control it, which is what closes the tail-truncation gap."""
-    import hashlib
+    """Anchor a REAL checkpoint produced by the audit pipeline, not an arbitrary
+    constant, and then confirm the cross-check finds it on-chain. This is what
+    puts the commitment outside the server operator's control."""
+    from app import anchor as anchor_mod
+    from app.db import reset_db_for_tests, session_scope
+    from app.ledger import get_ledger, reset_ledger_for_tests
+    from app.users import bootstrap_admin
 
-    digest = hashlib.sha256(b"checkpoint-integration").hexdigest()
-    assert bridge.is_anchored(digest) is False
-    tx = bridge.anchor(digest)
-    assert tx
+    reset_db_for_tests("sqlite:///:memory:")
+    reset_ledger_for_tests()
+    session = session_scope()
+    bootstrap_admin(session)
+    for i in range(3):
+        get_ledger().append(session, "op", "Event", f"t{i}", {"i": i})
+    session.commit()
+
+    cp = anchor_mod.create_checkpoint(session, anchor=True)
+    session.commit()
+    assert cp is not None
+    assert cp.anchor_tx, f"anchoring failed: {cp.anchor_error}"
+
+    body = anchor_mod.checkpoint_body(cp.seq, cp.count, cp.head_hash, cp.tree_root)
+    digest = anchor_mod.body_digest(body)
     assert bridge.is_anchored(digest) is True
+
+    cross = anchor_mod.verify_against_chain(session)
+    assert cross["checked"] is True and cross["ok"] is True
+    session.close()
 
 
 def test_onchain_rbac_rejects_unauthorized(bridge):

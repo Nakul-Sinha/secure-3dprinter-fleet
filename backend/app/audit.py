@@ -69,12 +69,21 @@ def export_bundle(session: Session, *, target: str | None = None) -> dict:
     }
 
 
-def verify_bundle(bundle: dict) -> dict:
-    """Recompute the hash chain, per-event signatures, the bundle signature, and
-    the checkpoint. Needs only the public key, so an external auditor can run it."""
+def verify_bundle(bundle: dict, expected_public_key: str) -> dict:
+    """Verify a bundle against a public key the VERIFIER supplies.
+
+    The key must be pinned out of band (fetch it once from /api/audit/public-key
+    or from the operator). Trusting the key embedded in the bundle would prove
+    nothing, because a forger would simply embed their own key alongside a
+    fabricated history that is internally consistent with it.
+    """
+    import hmac as _hmac
+
     from .ledger import _event_hash
 
-    pub = bundle.get("public_key")
+    pub = bundle.get("public_key", "")
+    if not expected_public_key or not _hmac.compare_digest(pub, expected_public_key):
+        return {"ok": False, "reason": "bundle signed by an unknown key"}
     body = {
         "events": bundle["events"],
         "chain_ok": bundle["chain_ok"],
@@ -84,6 +93,7 @@ def verify_bundle(bundle: dict) -> dict:
     if not verify_audit(canonical_bytes(body), bundle.get("bundle_signature", ""), pub):
         return {"ok": False, "reason": "bundle signature invalid"}
     prev = ""
+    by_seq = {}
     for ev in bundle["events"]:
         expect = _event_hash(ev["seq"], ev["actor"], ev["action"], ev["target"],
                              ev["payload"], prev, ev["ts"])
@@ -92,12 +102,23 @@ def verify_bundle(bundle: dict) -> dict:
         if not verify_audit(ev["this_hash"].encode(), ev["signature"], pub):
             return {"ok": False, "reason": f"signature invalid at seq {ev['seq']}"}
         prev = ev["this_hash"]
+        by_seq[ev["seq"]] = ev
 
     cp = bundle.get("checkpoint")
     if cp:
-        cpres = anchor.verify_checkpoint(cp)
+        cpres = anchor.verify_checkpoint(cp, expected_public_key)
         if not cpres["ok"]:
             return {"ok": False, "reason": cpres["reason"]}
-        if bundle["count"] < cp["count"]:
+        if bundle["count"] < cp["count"] or cp["seq"] not in by_seq:
             return {"ok": False, "reason": "truncated relative to the signed checkpoint"}
-    return {"ok": True, "count": len(bundle["events"]), "checkpoint_verified": bool(cp)}
+        if by_seq[cp["seq"]]["this_hash"] != cp["head_hash"]:
+            return {"ok": False, "reason": "checkpoint head does not match the exported events"}
+        covered = [e["this_hash"] for e in bundle["events"] if e["seq"] <= cp["seq"]]
+        if anchor.merkle_root(covered) != cp["tree_root"]:
+            return {"ok": False, "reason": "checkpoint Merkle root does not match the exported events"}
+    return {
+        "ok": True,
+        "count": len(bundle["events"]),
+        "attested": bool(cp),
+        "warning": "" if cp else "no signed checkpoint: truncation is not attested",
+    }

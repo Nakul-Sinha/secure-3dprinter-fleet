@@ -26,9 +26,13 @@ def audit_pdf(buf, events, check, target: str | None = None) -> None:
 
     story = [Paragraph("Audit trail", h1), Spacer(1, 4)]
     status = "intact" if check.ok else f"TAMPERED: {check.reason}"
+    attested = "attested by a signed checkpoint" if getattr(check, "attested", False) \
+        else "not yet attested by a checkpoint"
+    shown = len(events)
     story.append(Paragraph(
         f"Secure 3D-Printer Fleet, tier A0 tamper-evident log.<br/>"
-        f"Integrity: <b>{status}</b>. Events: {check.count}."
+        f"Integrity: <b>{status}</b> ({attested}).<br/>"
+        f"Events in chain: {check.count}. Events shown below: {shown}."
         + (f"<br/>Filtered to target: {target}." if target else ""), body))
     story.append(Spacer(1, 8))
 
